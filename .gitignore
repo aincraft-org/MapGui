@@ -2,6 +2,9 @@ build/
 .gradle/
 run/
 
+# Linked git worktrees live here; never track their contents.
+.worktrees/
+
 # IDE
 .idea/
 *.iml
