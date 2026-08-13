@@ -1,5 +1,7 @@
 package de.flog99.mapgui.ui;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
 
 /**
@@ -80,15 +82,49 @@ public interface Node {
 
     void hoverChanged(boolean hovered);
 
-    /** Topmost interactive node containing the point, or {@code null}. */
+    /**
+     * Topmost interactive node containing the point, or {@code null}.
+     *
+     * <p>Iterative: the recursive search descends children back to front and reports the deepest
+     * interactive node containing the point, which is the same as walking a stack of (node, child
+     * index) frames and taking the first interactive node found on the way back out.
+     */
     default Node hitTest(int x, int y) {
         if (hidden() || !bounds().contains(x, y)) return null;
 
-        List<Node> children = children();
-        for (int i = children.size() - 1; i >= 0; i--) {
-            Node hit = children.get(i).hitTest(x, y);
-            if (hit != null) return hit;
+        Deque<HitFrame> stack = new ArrayDeque<>();
+        stack.push(new HitFrame(this, 0));
+
+        while (!stack.isEmpty()) {
+            HitFrame frame = stack.peek();
+            List<Node> children = frame.node.children();
+
+            if (frame.index < children.size()) {
+                Node child = children.get(children.size() - 1 - frame.index);
+                frame.index++;
+                if (!child.hidden() && child.bounds().contains(x, y)) {
+                    stack.push(new HitFrame(child, 0));
+                }
+                continue;
+            }
+
+            stack.pop();
+            if (frame.node.interactive()) {
+                return frame.node;
+            }
         }
-        return interactive() ? this : null;
+
+        return null;
+    }
+
+    /** One node whose children are still being searched, for {@link #hitTest}. */
+    final class HitFrame {
+        final Node node;
+        int index;
+
+        HitFrame(Node node, int index) {
+            this.node = node;
+            this.index = index;
+        }
     }
 }
