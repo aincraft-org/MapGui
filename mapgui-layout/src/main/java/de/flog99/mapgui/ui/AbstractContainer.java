@@ -8,12 +8,22 @@ public abstract class AbstractContainer<S extends AbstractContainer<S>> extends 
 
     protected final List<Node> childNodes = new ArrayList<>();
 
+    /**
+     * The visible children, cached so a layout pass (measure then arrange, per container, per frame)
+     * does not rebuild a throwaway list each time.
+     *
+     * <p>Cached because {@code hidden} is only ever set while the tree is being built - nothing flips it
+     * after layout starts, so this cannot go stale. Invalidated whenever children are added.
+     */
+    private List<Node> visible;
+
     public S children(Node... nodes) {
         for (Node node : nodes) {
             if (node != null) {
                 childNodes.add(node);
             }
         }
+        visible = null;
         return self();
     }
 
@@ -23,6 +33,7 @@ public abstract class AbstractContainer<S extends AbstractContainer<S>> extends 
                 childNodes.add(node);
             }
         }
+        visible = null;
         return self();
     }
 
@@ -32,13 +43,17 @@ public abstract class AbstractContainer<S extends AbstractContainer<S>> extends 
     }
 
     protected List<Node> visibleChildren() {
-        List<Node> visible = new ArrayList<>(childNodes.size());
-        for (Node node : childNodes) {
-            if (!node.hidden()) {
-                visible.add(node);
+        List<Node> cached = visible;
+        if (cached == null) {
+            cached = new ArrayList<>(childNodes.size());
+            for (Node node : childNodes) {
+                if (!node.hidden()) {
+                    cached.add(node);
+                }
             }
+            visible = cached;
         }
-        return visible;
+        return cached;
     }
 
     @Override
