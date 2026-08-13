@@ -85,46 +85,19 @@ public interface Node {
     /**
      * Topmost interactive node containing the point, or {@code null}.
      *
-     * <p>Iterative: the recursive search descends children back to front and reports the deepest
-     * interactive node containing the point, which is the same as walking a stack of (node, child
-     * index) frames and taking the first interactive node found on the way back out.
+     * <p>Recursive, descending children back to front and reporting the deepest interactive node
+     * containing the point. Kept recursive for the same reason as {@link Nodes#findAt}: the tree is
+     * shallow, and a benchmark against an explicit-stack version showed recursion is faster and
+     * allocates nothing where the stack version allocated per call.
      */
     default Node hitTest(int x, int y) {
         if (hidden() || !bounds().contains(x, y)) return null;
 
-        Deque<HitFrame> stack = new ArrayDeque<>();
-        stack.push(new HitFrame(this, 0));
-
-        while (!stack.isEmpty()) {
-            HitFrame frame = stack.peek();
-            List<Node> children = frame.node.children();
-
-            if (frame.index < children.size()) {
-                Node child = children.get(children.size() - 1 - frame.index);
-                frame.index++;
-                if (!child.hidden() && child.bounds().contains(x, y)) {
-                    stack.push(new HitFrame(child, 0));
-                }
-                continue;
-            }
-
-            stack.pop();
-            if (frame.node.interactive()) {
-                return frame.node;
-            }
+        List<Node> children = children();
+        for (int i = children.size() - 1; i >= 0; i--) {
+            Node hit = children.get(i).hitTest(x, y);
+            if (hit != null) return hit;
         }
-
-        return null;
-    }
-
-    /** One node whose children are still being searched, for {@link #hitTest}. */
-    final class HitFrame {
-        final Node node;
-        int index;
-
-        HitFrame(Node node, int index) {
-            this.node = node;
-            this.index = index;
-        }
+        return interactive() ? this : null;
     }
 }
