@@ -310,6 +310,13 @@ walls:
   # pay for is what is up - not everything you have ever tried. Takes effect on restart.
   video-size: 256
 
+  # Decode limits. A limit of zero disables that ceiling.
+  # - video-max-frames: how many frames a single decoded GIF may hold.
+  # - video-max-duration: longest animation in seconds; frames above this are not decoded.
+  # - video-max-bytes: aggregate retained palette payload in bytes (width * height * frames).
+  video-max-frames: 1000
+  video-max-duration: 120
+  video-max-bytes: 100000000
 video:
   # Play mp4 and live streams as well as GIFs, using FFmpeg.
   #

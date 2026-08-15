@@ -38,6 +38,14 @@ public final class GifFrames implements Frames {
      */
     public static final int MAP_SIZE = 128;
 
+    /**
+     * Decode ceilings. A limit of zero means "do not enforce".
+     */
+    public record Limits(int maxSize, int maxFrames, long maxDurationMs, long maxBytes) {
+        public Limits {
+            if (maxSize <= 0) throw new IllegalArgumentException("maxSize must be positive");
+        }
+    }
     private final int width;
     private final int height;
     private final List<byte[]> frames;
@@ -52,24 +60,33 @@ public final class GifFrames implements Frames {
         this.durationMs = endsAt[endsAt.length - 1];
     }
 
-    /** Kept no larger than {@link #MAP_SIZE}, which is all a map can show anyway. */
+    /** Kept no larger than {@link #MAP_SIZE}. No frame, duration, or byte ceiling. */
     public static GifFrames read(InputStream source, Palette palette) throws IOException {
-        return read(source, palette, MAP_SIZE);
+        return read(source, palette, new Limits(MAP_SIZE, 0, 0, 0));
     }
 
+    /** Kept no larger than {@code maxSize}, with no other ceiling. */
     public static GifFrames read(InputStream source, Palette palette, int maxSize) throws IOException {
+        return read(source, palette, new Limits(maxSize, 0, 0, 0));
+    }
+
+    /** Kept no larger than the limits. */
+    public static GifFrames read(InputStream source, Palette palette, Limits limits) throws IOException {
         ImageReader reader = ImageIO.getImageReadersByFormatName("gif").next();
         try (ImageInputStream stream = ImageIO.createImageInputStream(source)) {
             reader.setInput(stream);
-            return read(reader, palette, maxSize);
+            return read(reader, palette, limits);
         } finally {
             reader.dispose();
         }
     }
 
-    private static GifFrames read(ImageReader reader, Palette palette, int maxSize) throws IOException {
+    private static GifFrames read(ImageReader reader, Palette palette, Limits limits) throws IOException {
         int count = reader.getNumImages(true);
         if (count == 0) throw new IOException("The GIF has no frames in it.");
+        if (limits.maxFrames() > 0 && count > limits.maxFrames()) {
+            throw new IOException("GIF has " + count + " frames, more than the configured " + limits.maxFrames());
+        }
 
         // Compositing has to happen at source size to land in the right place; only the copy we keep
         // is shrunk. Doing it the other way round would drift a frame's offset by the scale factor.
@@ -79,14 +96,14 @@ public final class GifFrames implements Frames {
         BufferedImage canvas = new BufferedImage(first.getWidth(), first.getHeight(), BufferedImage.TYPE_INT_ARGB);
         Graphics2D compositing = canvas.createGraphics();
 
-        double scale = Math.min(1.0, maxSize / (double) Math.max(canvas.getWidth(), canvas.getHeight()));
+        double scale = Math.min(1.0, limits.maxSize() / (double) Math.max(canvas.getWidth(), canvas.getHeight()));
         int width = Math.max(1, (int) Math.round(canvas.getWidth() * scale));
         int height = Math.max(1, (int) Math.round(canvas.getHeight() * scale));
 
         BufferedImage kept = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D shrinking = kept.createGraphics();
         shrinking.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        // Replace rather than blend, or last frame's pixels show through this one's transparent parts.
+        // Replace rather than blend, or last frame's pixels show through this one transparent parts.
         shrinking.setComposite(AlphaComposite.Src);
 
         List<byte[]> frames = new ArrayList<>(count);
@@ -107,10 +124,20 @@ public final class GifFrames implements Frames {
 
             shrinking.drawImage(canvas, 0, 0, width, height, null);
             kept.getRGB(0, 0, width, height, scratch, 0, width);
-            frames.add(quantize(scratch, palette));
-            elapsed += control.delayMs;
-            endsAt[i] = elapsed;
 
+            if (limits.maxBytes() > 0) {
+                long projected = ((long) frames.size() + 1) * width * height;
+                if (projected > limits.maxBytes()) {
+                    throw new IOException("GIF would retain " + projected + " bytes, more than " + limits.maxBytes());
+                }
+            }
+            frames.add(quantize(scratch, palette));
+
+            elapsed += control.delayMs;
+            if (limits.maxDurationMs() > 0 && elapsed > limits.maxDurationMs()) {
+                throw new IOException("GIF duration exceeds " + limits.maxDurationMs() + " ms");
+            }
+            endsAt[i] = elapsed;
             // Disposal describes what happens *after* this frame is shown, so it is applied once the frame
             // has been kept - not before drawing it. Getting that backwards leaves one frame of the
             // previous picture showing through wherever this one is transparent.

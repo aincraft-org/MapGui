@@ -29,4 +29,25 @@ class MapGuiConfigTest {
     void videoSizeUsesDefault() {
         assertEquals(256, MapGuiConfig.from(new YamlConfiguration()).wallVideoSize());
     }
+
+    @Test
+    void videoMaxFramesIsConfigured() {
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("walls.video-max-frames", 5);
+        assertEquals(5, MapGuiConfig.from(config).wallVideoMaxFrames());
+    }
+
+    @Test
+    void videoMaxDurationIsStoredAsMilliseconds() {
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("walls.video-max-duration", 30);
+        assertEquals(30_000L, MapGuiConfig.from(config).wallVideoMaxDurationMs());
+    }
+
+    @Test
+    void videoMaxBytesIsConfigured() {
+        YamlConfiguration config = new YamlConfiguration();
+        config.set("walls.video-max-bytes", 10_000_000L);
+        assertEquals(10_000_000L, MapGuiConfig.from(config).wallVideoMaxBytes());
+    }
 }

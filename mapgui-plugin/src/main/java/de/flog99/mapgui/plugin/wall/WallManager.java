@@ -56,12 +56,13 @@ public final class WallManager {
 
     /** Takes a way to start a wall rather than the whole of {@link MapGui}, which is all it ever used it for. */
     public WallManager(Plugin plugin, Supplier<WallDisplay.Builder> walls, InputRouter router,
-                       GuiCatalog screens, int fps, int range, int videoSize, boolean prerender, Map<String, String> streams) {
+                       GuiCatalog screens, int fps, int range, int videoSize, int videoMaxFrames, long videoMaxDurationMs, long videoMaxBytes,
+                       boolean prerender, Map<String, String> streams) {
         this.plugin = plugin;
         this.walls = walls;
         this.router = router;
         this.store = new WallStore(plugin);
-        this.contents = new WallContents(screens, new VideoLibrary(plugin, videoSize, prerender, streams));
+        this.contents = new WallContents(screens, new VideoLibrary(plugin, videoSize, videoMaxFrames, videoMaxDurationMs, videoMaxBytes, prerender, streams));
         this.fps = fps;
         this.range = range;
     }

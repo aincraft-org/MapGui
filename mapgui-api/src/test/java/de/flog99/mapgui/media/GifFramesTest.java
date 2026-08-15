@@ -20,6 +20,7 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class GifFramesTest {
 
@@ -162,5 +163,30 @@ class GifFramesTest {
         assertNotEquals(Frames.TRANSPARENT, pixels[0], "the red pixel is opaque");
         assertEquals(10, pixels[0], "and matched to the palette");
         assertEquals(Frames.TRANSPARENT, pixels[1], "the see-through one must not become black");
+    }
+
+
+    @Test
+    void tooManyFramesAreRejected() {
+        assertThrows(IOException.class,
+                () -> GifFrames.read(new ByteArrayInputStream(twoFrames("none", "none")), PALETTE,
+                        new GifFrames.Limits(128, 1, 0, 0)),
+                "two frames over a one-frame limit should fail");
+    }
+
+    @Test
+    void tooMuchDurationIsRejected() {
+        assertThrows(IOException.class,
+                () -> GifFrames.read(new ByteArrayInputStream(twoFrames("none", "none")), PALETTE,
+                        new GifFrames.Limits(128, 100, 50, 0)),
+                "200 ms of delay over a 50 ms limit should fail");
+    }
+
+    @Test
+    void tooMuchRetainedMemoryIsRejected() {
+        assertThrows(IOException.class,
+                () -> GifFrames.read(new ByteArrayInputStream(twoFrames("none", "none")), PALETTE,
+                        new GifFrames.Limits(128, 100, 1_000, 1)),
+                "two 1-byte frames over a 1-byte limit should fail");
     }
 }

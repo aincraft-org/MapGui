@@ -86,8 +86,9 @@ public final class MapGuiPlugin extends JavaPlugin {
         printer = new MapPrinterService(this, backend.savedMapPixels());
         announceVideo();
 
-        walls = new WallManager(this, wallRegistry::builder, router, screens, config.wallFps(), config.wallRange(), config.wallVideoSize(), config.wallPrerender(), config.streams());
-        sessions = new SessionManager(this, wallRegistry);
+        walls = new WallManager(this, wallRegistry::builder, router, screens, config.wallFps(), config.wallRange(),
+                config.wallVideoSize(), config.wallVideoMaxFrames(), config.wallVideoMaxDurationMs(), config.wallVideoMaxBytes(),
+                config.wallPrerender(), config.streams());
         handItems = new HandItems(this);
         heldTriggers = new HeldTriggers(this);
         getServer().getServicesManager().register(MapGui.class, sessions, this, ServicePriority.Normal);

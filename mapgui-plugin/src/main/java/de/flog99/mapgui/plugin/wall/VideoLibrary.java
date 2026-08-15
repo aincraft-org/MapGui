@@ -43,6 +43,9 @@ final class VideoLibrary {
 
     private final Plugin plugin;
     private final int size;
+    private final int maxFrames;
+    private final long maxDurationMs;
+    private final long maxBytes;
     private final boolean prerender;
     private final Map<String, String> streams;
 
@@ -58,9 +61,12 @@ final class VideoLibrary {
      */
     private final Map<String, String> unplayable = new HashMap<>();
 
-    VideoLibrary(Plugin plugin, int size, boolean prerender, Map<String, String> streams) {
+    VideoLibrary(Plugin plugin, int size, int maxFrames, long maxDurationMs, long maxBytes, boolean prerender, Map<String, String> streams) {
         this.plugin = plugin;
         this.size = size;
+        this.maxFrames = maxFrames;
+        this.maxDurationMs = maxDurationMs;
+        this.maxBytes = maxBytes;
         this.prerender = prerender;
         this.streams = streams;
         folder().mkdirs();
@@ -159,7 +165,8 @@ final class VideoLibrary {
         if (cached != null) return WallContent.video(cached);
 
         try (InputStream source = Files.newInputStream(file.toPath())) {
-            VideoPlayer video = new VideoPlayer(GifFrames.read(source, MapColors.INSTANCE, size));
+            VideoPlayer video = new VideoPlayer(GifFrames.read(source, MapColors.INSTANCE,
+                    new GifFrames.Limits(size, maxFrames, maxDurationMs, maxBytes)));
             decoded.put(name, video);
             return WallContent.video(video);
         } catch (IOException e) {
