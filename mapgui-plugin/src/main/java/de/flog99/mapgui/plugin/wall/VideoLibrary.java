@@ -230,9 +230,9 @@ final class VideoLibrary {
         return before - decoded.size() - playing.size();
     }
 
-    /** Stops every decoder. For shutdown, where a daemon thread left running would still hold a socket. */
+    /** Stops every decoder, awaiting each bounded close before its replacement can be opened. */
     void close() {
-        for (LiveSource source : playing.values()) source.close();
+        for (LiveSource source : List.copyOf(playing.values())) source.close();
         playing.clear();
     }
 

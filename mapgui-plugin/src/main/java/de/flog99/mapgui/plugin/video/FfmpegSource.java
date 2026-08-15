@@ -31,13 +31,21 @@ public final class FfmpegSource implements LiveSource {
     private final int height;
     private final boolean loop;
     private final Thread thread;
+    private static final int IO_TIMEOUT_MS = 5_000;
+    private static final long CLOSE_TIMEOUT_MS = 5_000;
+
+    /** The active grabber is published so close can cancel a blocking native read. */
+    private volatile FFmpegFrameGrabber grabber;
 
     /** Replaced whole, never written into, which is what makes reading it from another thread safe. */
     private volatile byte @Nullable [] frame;
     private volatile boolean running = true;
+    private volatile boolean closed;
 
     @Nullable
     private volatile String error;
+
+
 
     /**
      * @param source what FFmpeg should open - a file path or a url
@@ -83,14 +91,39 @@ public final class FfmpegSource implements LiveSource {
 
     @Override
     public void close() {
+        if (closed) return;
+        closed = true;
         running = false;
         thread.interrupt();
+        FFmpegFrameGrabber active = grabber;
+        if (active != null) {
+            try {
+                active.stop();
+            } catch (Exception ignored) {
+                // The decode thread records failures; close remains idempotent.
+            }
+        }
+        if (Thread.currentThread() == thread) return;
+        try {
+            thread.join(CLOSE_TIMEOUT_MS);
+            if (thread.isAlive()) {
+                error = "FFmpeg decoder did not stop within " + CLOSE_TIMEOUT_MS + " ms";
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            error = "Interrupted while waiting for FFmpeg decoder shutdown";
+        }
     }
 
     private void decode() {
         try (FFmpegFrameGrabber grabber = new FFmpegFrameGrabber(source);
              Java2DFrameConverter converter = new Java2DFrameConverter()) {
+            this.grabber = grabber;
 
+            // Bound native reads as well as Java-side shutdown.
+            grabber.setTimeout(IO_TIMEOUT_MS);
+            grabber.setOption("rw_timeout", Long.toString(IO_TIMEOUT_MS * 1_000L));
+            grabber.setOption("stimeout", Long.toString(IO_TIMEOUT_MS * 1_000L));
             // Scaled by the decoder, so nothing full size is ever allocated.
             grabber.setImageWidth(width);
             grabber.setImageHeight(height);
@@ -138,6 +171,7 @@ public final class FfmpegSource implements LiveSource {
             // Anything at all: a missing file, a codec FFmpeg was not built with, a stream that went away.
             error = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
         } finally {
+            grabber = null;
             running = false;
         }
     }
