@@ -42,8 +42,11 @@ final class WallCapture {
     static List<EntitySnapshot> take(Player viewer, Location eye, LiveWalls walls, TextureAtlas atlas) {
         if (walls == null) return List.of();
 
+        // Reject the whole wall gather before WallDisplay allocates/copies tile surface regions.
+        if (viewer.getWorld() != eye.getWorld()) return List.of();
+        List<WallTile> tiles = walls.shownTo(viewer);
         List<EntitySnapshot> drawn = new ArrayList<>();
-        for (WallTile tile : walls.shownTo(viewer)) {
+        for (WallTile tile : tiles) {
             EntitySnapshot picture = pictureOf(tile, eye, atlas);
             if (picture != null) {
                 drawn.add(picture);
