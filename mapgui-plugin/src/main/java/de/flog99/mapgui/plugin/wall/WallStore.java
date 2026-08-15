@@ -32,7 +32,7 @@ final class WallStore {
 
     /** In insertion order, so listing them twice gives the same answer twice. */
     private final Map<String, Placed> walls = new LinkedHashMap<>();
-
+    private Map<String, Placed> snapshot = Map.of();
     WallStore(Plugin plugin) {
         this.plugin = plugin;
     }
@@ -59,12 +59,14 @@ final class WallStore {
                 plugin.getSLF4JLogger().warn("Skipping wall '{}': {}", name, e.getMessage());
             }
         }
+        snapshot = Map.copyOf(walls);
         plugin.getSLF4JLogger().info("Loaded {} map wall(s)", walls.size());
     }
 
     Map<String, Placed> all() {
-        return Map.copyOf(walls);
+        return snapshot;
     }
+
 
     Set<String> names() {
         return walls.keySet();
@@ -76,12 +78,14 @@ final class WallStore {
 
     void put(String name, Placed wall) {
         walls.put(name, wall);
+        snapshot = Map.copyOf(walls);
         save();
     }
 
     boolean remove(String name) {
         if (walls.remove(name) == null) return false;
 
+        snapshot = Map.copyOf(walls);
         save();
         return true;
     }
