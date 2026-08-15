@@ -9,6 +9,8 @@ import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,11 +30,18 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class AwtFont implements TextFont {
 
     private static final char FALLBACK = '?';
+    private static final int GLYPH_CACHE_LIMIT = 512;
 
     private final Font font;
     private final boolean antiAliased;
     private final FontMetrics metrics;
-    private final Map<Character, Glyph> glyphs = new ConcurrentHashMap<>();
+    private final Map<Character, Glyph> glyphs = Collections.synchronizedMap(
+            new LinkedHashMap<>(GLYPH_CACHE_LIMIT, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<Character, Glyph> eldest) {
+                    return size() > GLYPH_CACHE_LIMIT;
+                }
+            });
     private final Map<Integer, AwtFont> derived = new ConcurrentHashMap<>();
 
     /**
@@ -100,7 +109,12 @@ public final class AwtFont implements TextFont {
     public int widthOf(String text) {
         if (text == null || text.isEmpty()) return 0;
 
-        return metrics.stringWidth(sanitize(text));
+        String sanitized = sanitize(text);
+        int width = 0;
+        for (int i = 0; i < sanitized.length(); i++) {
+            width += glyphOf(sanitized.charAt(i)).width();
+        }
+        return width;
     }
 
     @Override
@@ -165,7 +179,19 @@ public final class AwtFont implements TextFont {
     }
 
     private Glyph glyphOf(char ch) {
-        return glyphs.computeIfAbsent(font.canDisplay(ch) ? ch : FALLBACK, this::rasterize);
+        char display = font.canDisplay(ch) ? ch : FALLBACK;
+        synchronized (glyphs) {
+            Glyph cached = glyphs.get(display);
+            if (cached != null) return cached;
+            Glyph rendered = rasterize(display);
+            glyphs.put(display, rendered);
+            return rendered;
+        }
+    }
+    int glyphCacheSize() {
+        synchronized (glyphs) {
+            return glyphs.size();
+        }
     }
 
     /**
