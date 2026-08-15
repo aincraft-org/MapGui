@@ -142,6 +142,12 @@ public final class CameraService implements Camera {
 
     /** Set by the first plugin to ask this camera for anything, and never cleared. */
     private volatile boolean used;
+    private volatile boolean closed;
+
+    /** Captures that have been queued or are still running, so a close can cancel and fail them cleanly. */
+    private final Map<Integer, Capture> inFlight = new ConcurrentHashMap<>();
+
+    private record Capture(String owner, Consumer<CameraShot> onShot) {}
 
     /**
      * How many copied-but-untraced captures may be held at once.
@@ -254,6 +260,11 @@ public final class CameraService implements Camera {
     @Override
     public void capture(Player player, CameraOptions options, Consumer<CameraShot> onShot) {
         used = true;
+        if (closed) {
+            load.turnedAway(CallingPlugin.of(plugin));
+            onShot.accept(null);
+            return;
+        }
         assets.ensure();
 
         Baked ready = readyBaked();
@@ -348,44 +359,53 @@ public final class CameraService implements Camera {
     private void trace(Baked ready, String owner, Player player, int pixels, int number,
                        SnapshotWorld world, CameraView view, List<EntitySnapshot> entities,
                        Consumer<CameraShot> onShot, long started, long copied, long gathered) {
-        captures.execute(() -> {
-            int[] argb = new int[pixels * pixels];
-            byte[] indices = new byte[pixels * pixels];
-            long traceStarted = System.nanoTime();
-            long traced;
-            try {
-                ready.tracer().render(world, view, entities, pixels, pixels, argb);
-                traced = System.nanoTime();
-                ready.palette().quantize(argb, indices);
-            } catch (RuntimeException e) {
-                // With the stack, because without it this is unactionable. A capture failing is always a bug in here
-                // rather than something an admin did, and the message alone once cost an afternoon.
-                plugin.getLogger().log(Level.WARNING, "A camera capture failed", e);
-                // And counted, since a console nobody is reading is where this used to end: a camera that fails every
-                // time looks from the outside exactly like one nothing is using.
-                load.failed(owner, e);
-                onMainThread(() -> onShot.accept(null));
-                return;
-            }
-            long quantized = System.nanoTime();
-            load.traced(owner, quantized - traceStarted);
-
-            // A capture that succeeded can still have been drawn from the wrong layers, and this is the only
-            // moment anything knows: a pack that stopped being readable reads as a pack that never had the file.
-            assets.reportDamage();
-
-            CameraShot shot = new CameraShot(pixels, pixels, indices, ready.version());
-            onMainThread(() -> {
-                onShot.accept(shot);
-                // After the shot is handed over, so a slow consumer is not timed as if the camera had been slow.
-                Follow follow = followed.get(player.getUniqueId());
-                if (follow != null && player.isOnline()) {
-                    int[] sections = world.sections();
-                    tail(player, follow, new CaptureTimings(pixels, number, world.chunks(), sections[0], sections[1],
-                            entities.size(), copied - started, gathered - copied, traced - traceStarted, quantized - traced));
+        inFlight.put(number, new Capture(owner, onShot));
+        try {
+            captures.execute(() -> {
+                Capture capture = inFlight.remove(number);
+                if (capture == null || closed || Thread.currentThread().isInterrupted()) {
+                    if (capture != null) {
+                        onMainThread(() -> capture.onShot().accept(null));
+                        load.turnedAway(capture.owner());
+                    }
+                    return;
                 }
+                int[] argb = new int[pixels * pixels];
+                byte[] indices = new byte[pixels * pixels];
+                long traceStarted = System.nanoTime();
+                long traced;
+                try {
+                    ready.tracer().render(world, view, entities, pixels, pixels, argb);
+                    traced = System.nanoTime();
+                    ready.palette().quantize(argb, indices);
+                } catch (RuntimeException e) {
+                    plugin.getLogger().log(Level.WARNING, "A camera capture failed", e);
+                    load.failed(capture.owner(), e);
+                    onMainThread(() -> capture.onShot().accept(null));
+                    return;
+                }
+                long quantized = System.nanoTime();
+                load.traced(capture.owner(), quantized - traceStarted);
+
+                assets.reportDamage();
+
+                CameraShot shot = new CameraShot(pixels, pixels, indices, ready.version());
+                onMainThread(() -> {
+                    capture.onShot().accept(shot);
+                    Follow follow = followed.get(player.getUniqueId());
+                    if (follow != null && player.isOnline()) {
+                        int[] sections = world.sections();
+                        tail(player, follow, new CaptureTimings(pixels, number, world.chunks(), sections[0], sections[1],
+                                entities.size(), copied - started, gathered - copied, traced - traceStarted, quantized - traced));
+                    }
+                });
             });
-        });
+        } catch (RejectedExecutionException e) {
+            if (inFlight.remove(number) != null) {
+                load.turnedAway(owner);
+                onShot.accept(null);
+            }
+        }
     }
 
     /**
@@ -563,6 +583,29 @@ public final class CameraService implements Camera {
         at.setYaw(eye.getYaw() + 180);
         at.setPitch(-eye.getPitch());
         return at;
+    }
+
+    /**
+     * Shuts this camera down: rejects new captures, cancels and fails any that have not finished,
+     * closes the tracer and the capture executor, and waits briefly for the worker to stop.
+     */
+    public synchronized void close() {
+        if (closed) return;
+        closed = true;
+
+        for (Capture capture : List.copyOf(inFlight.values())) {
+            onMainThread(() -> capture.onShot().accept(null));
+            load.turnedAway(capture.owner());
+        }
+        inFlight.clear();
+        invalidate();
+
+        captures.shutdownNow();
+        try {
+            captures.awaitTermination(5, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     /**

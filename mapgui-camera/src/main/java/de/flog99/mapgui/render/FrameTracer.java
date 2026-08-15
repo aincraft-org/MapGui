@@ -82,6 +82,9 @@ public final class FrameTracer implements AutoCloseable {
      */
     public void render(VoxelSource world, CameraView view, List<EntitySnapshot> entities, int width, int height, int[] out) {
         int bands = Math.min(threads, height);
+        if (pool != null && pool.isShutdown()) {
+            throw new IllegalStateException("Tracer is closed");
+        }
         if (pool == null || bands <= 1) {
             tracers.get().render(world, view, entities, width, height, out);
             return;
@@ -100,6 +103,8 @@ public final class FrameTracer implements AutoCloseable {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Interrupted while tracing a frame", e);
+            } catch (java.util.concurrent.CancellationException e) {
+                throw new IllegalStateException("Tracer closed while tracing a frame", e);
             } catch (java.util.concurrent.ExecutionException e) {
                 // Unwrapped, so a caller sees the failure the band actually hit rather than a wrapper around it.
                 throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());

@@ -150,6 +150,9 @@ public final class MapGuiPlugin extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (camera != null) {
+            camera.close();
+        }
         if (feeds != null) {
             feeds.closeAll();
         }
@@ -180,6 +183,9 @@ public final class MapGuiPlugin extends JavaPlugin {
     void reload() {
         reloadConfig();
         config = MapGuiConfig.from(getConfig());
+        if (camera != null) {
+            camera.close();
+        }
         walls.retune(config.wallFps(), config.wallRange());
         prompts.setDefault(config.defaultPrompt());
 

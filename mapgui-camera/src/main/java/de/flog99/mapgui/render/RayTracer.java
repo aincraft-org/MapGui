@@ -281,6 +281,10 @@ public final class RayTracer {
         EntityScreen screen = entities.isEmpty() ? null : new EntityScreen(entities, view, width, height);
 
         for (int py = fromRow; py < toRow; py++) {
+            if (Thread.interrupted()) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Ray tracer interrupted");
+            }
             int[] row = screen == null ? null : screen.row(py);
 
             for (int px = 0; px < width; px++) {
