@@ -11,8 +11,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * Decodes textures out of the asset layers, once each, and says how their pixels behave.
  *
@@ -33,7 +33,10 @@ public final class TextureAtlas implements BlockModels.TextureAlpha, Textures {
 
     private final AssetStack stack;
     private final Map<String, Texture> textures = new ConcurrentHashMap<>();
+    private final Set<String> generated = ConcurrentHashMap.newKeySet();
+    private final Set<String> protectedNames = ConcurrentHashMap.newKeySet();
     private final Texture missing = checkerboard();
+    private volatile int generatedLimit = 256;
 
     public TextureAtlas(AssetStack stack) {
         this.stack = stack;
@@ -44,9 +47,12 @@ public final class TextureAtlas implements BlockModels.TextureAlpha, Textures {
      * is not a reason to fail a whole capture - and a version mismatch that got past the check should look
      * obviously wrong rather than invisibly wrong.
      */
-    @Override
     public Texture get(String name) {
-        return textures.computeIfAbsent(name, this::load);
+        Texture cached = textures.get(name);
+        if (cached != null) return cached;
+        Texture loaded = load(name);
+        Texture prior = textures.putIfAbsent(name, loaded);
+        return prior == null ? loaded : prior;
     }
 
     @Override
@@ -57,6 +63,24 @@ public final class TextureAtlas implements BlockModels.TextureAlpha, Textures {
     /** Adds a texture that did not come from the asset layers, such as a player's skin. */
     public void put(String name, Texture texture) {
         textures.put(name, texture);
+    }
+
+    public void setGeneratedLimit(int limit) {
+        if (limit < 0) throw new IllegalArgumentException("limit must not be negative");
+        generatedLimit = limit;
+        evictGenerated();
+    }
+
+    public int generatedCount() {
+        return generated.size();
+    }
+
+    public void protect(String name) {
+        protectedNames.add(name);
+    }
+
+    public void unprotect(String name) {
+        protectedNames.remove(name);
     }
 
     /**
@@ -79,12 +103,11 @@ public final class TextureAtlas implements BlockModels.TextureAlpha, Textures {
         String name = base + "+" + String.join("+", over);
         if (textures.containsKey(name)) return name;
 
-        // Every texture this needs is fetched before the map is written to. Composing inside computeIfAbsent would
-        // load the layers from inside it, and a reentrant update is something a ConcurrentHashMap refuses outright -
-        // intermittently, since it only notices when the nested key lands in the bin the outer one has locked.
         Texture bottom = get(base);
         List<Texture> layers = over.stream().map(this::get).toList();
         textures.putIfAbsent(name, composite(bottom, layers));
+        generated.add(name);
+        evictGenerated();
         return name;
     }
 
@@ -123,6 +146,8 @@ public final class TextureAtlas implements BlockModels.TextureAlpha, Textures {
         // Fetched before the map is written to, for the reason {@link #layered} says.
         List<Texture> painted = layers.stream().map(layer -> multiplied(get(layer.texture()), layer.color())).toList();
         textures.putIfAbsent(key, composite(painted.getFirst(), painted.subList(1, painted.size())));
+        generated.add(key);
+        evictGenerated();
         return key;
     }
 
@@ -192,6 +217,18 @@ public final class TextureAtlas implements BlockModels.TextureAlpha, Textures {
         if (loaded != null) return loaded != missing;
 
         return stack.has(AssetStack.asset(name, "textures", ".png"));
+    }
+
+    private void evictGenerated() {
+        while (generated.size() > generatedLimit) {
+            String victim = generated.stream()
+                    .filter(name -> !protectedNames.contains(name))
+                    .findFirst()
+                    .orElse(null);
+            if (victim == null) return;
+            generated.remove(victim);
+            textures.remove(victim);
+        }
     }
 
     private Texture load(String name) {

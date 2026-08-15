@@ -20,6 +20,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TextureAtlasTest {
 
@@ -98,6 +99,12 @@ class TextureAtlasTest {
         AssetStack stack = AssetStack.of(List.of(), AssetPack.open(zip), "26.2");
         open.add(stack);
         return new TextureAtlas(stack);
+    }
+
+    private TextureAtlas atlas(int generatedLimit) throws IOException {
+        TextureAtlas atlas = atlas();
+        atlas.setGeneratedLimit(generatedLimit);
+        return atlas;
     }
 
     @Test
@@ -223,5 +230,28 @@ class TextureAtlasTest {
         assertEquals(0xFF884400, texture.argb()[0], "the robe where it is painted");
         assertEquals(0xFF102030, texture.argb()[15 * 16], "the body where it is not");
         assertEquals(0xFF102030, atlas.get("entity/villager/villager").argb()[0], "and the bare body left as it was");
+    }
+
+    @Test
+    void generatedTexturesAreBoundedAndProtectedNamesSurviveEviction() throws IOException {
+        TextureAtlas atlas = atlas(2);
+        Texture base = new Texture(1, 1, new int[]{0xFF102030}, BakedState.Alpha.OPAQUE, 0xFF102030);
+        Texture overlay = new Texture(1, 1, new int[]{0xFFFF0000}, BakedState.Alpha.OPAQUE, 0xFFFF0000);
+        atlas.put("base", base);
+        atlas.put("overlay", overlay);
+
+        String generated = atlas.layered("base", List.of("overlay"));
+        atlas.layered("base", List.of("overlay", "base"));
+        atlas.protect(generated);
+        atlas.layered("base", List.of("base", "overlay"));
+
+        assertTrue(atlas.generatedCount() <= 2);
+        assertEquals(base, atlas.get("base"));
+        assertEquals(overlay, atlas.get("overlay"));
+        assertEquals(0xFFFF0000, atlas.get(generated).argb()[0]);
+
+        atlas.unprotect(generated);
+        atlas.layered("base", List.of("overlay"));
+        assertEquals(0xFFFF0000, atlas.get(generated).argb()[0]);
     }
 }
