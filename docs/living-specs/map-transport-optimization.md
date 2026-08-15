@@ -87,7 +87,7 @@ counters. None of these results justifies a production change yet.
 | 2026-08-14 | Treat prerendering as an existing production capability, not a proposed feature. | `WallDisplay`, `WallLoop`, `WallTiles`, and NMS map repointing already implement and document it. |
 | 2026-08-14 | Do not infer a new `Patches` split cost from payload-only experiments. | The current 1024 cost models client update work; changing it requires representative end-to-end evidence. |
 | 2026-08-14 | Keep the current one-span-per-row representation pending real traces. | The corrected same-row fixture recovers 60 raw bytes with true intervals, less than the current modeled cost of another packet. |
-| 2026-08-14 | Keep the split-cost sweep in test-source code rather than adding a parameter to `Patches`. | The evidence contract for this campaign forbids production planner changes; a labeled test-source replica is an acceptable diagnostic when its default 1024 output is asserted equal to production `Patches.plan`. |
+| 2026-08-14 | Classify extraction timing and prerender break-even as diagnostic, not decision-grade. | The extraction benchmark lacks forked JVM allocation counters, and the prerender model lacks production transport-counter validation. |
 
 ## Open questions
 
