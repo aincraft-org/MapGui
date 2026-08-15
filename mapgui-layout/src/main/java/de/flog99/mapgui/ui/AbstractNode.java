@@ -34,6 +34,10 @@ public abstract class AbstractNode<S extends AbstractNode<S>> implements Node {
     /** Position in the tree, used to identify this node's animations when it has no key. */
     private String path = "";
     private Animator animator;
+    private MeasuredCache measuredCache;
+
+    private record MeasuredCache(LayoutContext context, int width, int height, Measured value) {
+    }
 
     private Color hoverBackground;
     private Color hoverBorderColor;
@@ -56,11 +60,13 @@ public abstract class AbstractNode<S extends AbstractNode<S>> implements Node {
 
     public S width(int pixels) {
         this.width = Sizing.fixed(pixels);
+        measuredCache = null;
         return self();
     }
 
     public S height(int pixels) {
         this.height = Sizing.fixed(pixels);
+        measuredCache = null;
         return self();
     }
 
@@ -76,16 +82,19 @@ public abstract class AbstractNode<S extends AbstractNode<S>> implements Node {
     public S fill(int weight) {
         this.width = Sizing.fill(weight);
         this.height = Sizing.fill(weight);
+        measuredCache = null;
         return self();
     }
 
     public S fillWidth() {
         this.width = Sizing.fill(1);
+        measuredCache = null;
         return self();
     }
 
     public S fillHeight() {
         this.height = Sizing.fill(1);
+        measuredCache = null;
         return self();
     }
 
@@ -93,16 +102,18 @@ public abstract class AbstractNode<S extends AbstractNode<S>> implements Node {
 
     public S padding(int all) {
         this.padding = Insets.all(all);
+        measuredCache = null;
         return self();
     }
-
-    public S padding(int vertical, int horizontal) {
-        this.padding = Insets.symmetric(vertical, horizontal);
+    public S padding(int horizontal, int vertical) {
+        this.padding = Insets.symmetric(horizontal, vertical);
+        measuredCache = null;
         return self();
     }
 
     public S padding(Insets insets) {
         this.padding = insets;
+        measuredCache = null;
         return self();
     }
 
@@ -206,9 +217,9 @@ public abstract class AbstractNode<S extends AbstractNode<S>> implements Node {
     public boolean tracksCursor() {
         return tracksCursor;
     }
-
     public S hidden(boolean value) {
         this.hidden = value;
+        measuredCache = null;
         return self();
     }
 
@@ -458,9 +469,14 @@ public abstract class AbstractNode<S extends AbstractNode<S>> implements Node {
     }
 
     // ---- layout ----
-
     @Override
     public final Measured measure(LayoutContext context, int availableWidth, int availableHeight) {
+        MeasuredCache cached = measuredCache;
+        if (cached != null && cached.context() == context
+                && cached.width() == availableWidth && cached.height() == availableHeight) {
+            return cached.value();
+        }
+
         // A fixed size has to reach the content, or text would wrap against the parent's width
         // and then be squeezed into a narrower box.
         int limitWidth = width.mode() == Sizing.Mode.FIXED ? width.value() : availableWidth;
@@ -470,10 +486,12 @@ public abstract class AbstractNode<S extends AbstractNode<S>> implements Node {
         int contentHeight = Math.max(0, limitHeight - padding.vertical());
         Measured content = measureContent(context, contentWidth, contentHeight);
 
-        return new Measured(
+        Measured value = new Measured(
                 resolve(width, content.width() + padding.horizontal(), availableWidth),
                 resolve(height, content.height() + padding.vertical(), availableHeight)
         );
+        measuredCache = new MeasuredCache(context, availableWidth, availableHeight, value);
+        return value;
     }
 
     private static int resolve(Sizing sizing, int natural, int available) {
