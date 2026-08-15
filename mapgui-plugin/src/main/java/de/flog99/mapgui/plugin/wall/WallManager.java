@@ -17,6 +17,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -47,6 +48,9 @@ public final class WallManager {
 
     private int fps;
     private int range;
+    private static final int ADMISSIONS_PER_TICK = 4;
+    private final ArrayDeque<String> admissionQueue = new ArrayDeque<>();
+    private final Set<String> queuedAdmissions = new HashSet<>();
 
     private final Map<String, WallDisplay> live = new HashMap<>();
     private final Map<UUID, WallPlacement> placing = new HashMap<>();
@@ -86,22 +90,27 @@ public final class WallManager {
         placing.clear();
     }
 
-    // ---- ticking ----
-
     /** Only opens walls and aims previews - the walls themselves are ticked by the plugin's registry. */
     public void tick() {
         long now = System.currentTimeMillis();
 
-        for (Map.Entry<String, WallStore.Placed> entry : store.all().entrySet()) {
-            if (live.containsKey(entry.getKey())) continue;
+        for (String name : store.all().keySet()) {
+            if (live.containsKey(name) || queuedAdmissions.contains(name)) continue;
+            admissionQueue.addLast(name);
+            queuedAdmissions.add(name);
+        }
 
-            Consumer<WallDisplay.Builder> content = contents.find(entry.getValue().content());
+        for (int admitted = 0; admitted < ADMISSIONS_PER_TICK && !admissionQueue.isEmpty(); admitted++) {
+            String name = admissionQueue.removeFirst();
+            queuedAdmissions.remove(name);
+            WallStore.Placed placed = store.all().get(name);
+            if (placed == null || live.containsKey(name)) continue;
+
+            Consumer<WallDisplay.Builder> content = contents.find(placed.content());
             if (content == null) continue;
 
-            WallDisplay wall = build(entry.getValue(), content);
-            if (wall != null) {
-                live.put(entry.getKey(), wall);
-            }
+            WallDisplay wall = build(placed, content);
+            if (wall != null) live.put(name, wall);
         }
 
         for (WallPlacement placement : placing.values()) placement.aim(now);
