@@ -115,4 +115,36 @@ class MapSurfaceTest {
         assertEquals(INK, region[0]);
         assertEquals(7, region[3]);
     }
+
+    @Test
+    void repeatedFillOnUniformSurfaceDoesNotDirtyAnything() {
+        MapSurface surface = new MapSurface(128, 128);
+        surface.fill(INK);
+        surface.clearDirty();
+
+        surface.fill(INK);
+        assertFalse(surface.isDirty(), "a fill with the color already in every pixel should not mark dirty");
+    }
+
+    @Test
+    void directPixelMutationIsStillHealedByFill() {
+        MapSurface surface = new MapSurface(128, 128);
+        surface.fill(INK);
+        surface.clearDirty();
+
+        byte[] live = surface.pixels();
+        live[42] = (byte) (INK + 1);
+
+        surface.fill(INK);
+        assertTrue(surface.isDirty(), "direct array mutation must still cause a real fill");
+        assertEquals(INK, surface.get(42 % surface.width(), 42 / surface.width()));
+    }
+
+    @Test
+    void firstFillWithZeroIsStillDirty() {
+        MapSurface surface = new MapSurface(128, 128);
+        surface.fill((byte) 0);
+        assertTrue(surface.isDirty(), "the first fill must mark the whole surface dirty even with zero");
+    }
 }
+

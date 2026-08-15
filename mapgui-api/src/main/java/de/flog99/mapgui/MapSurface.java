@@ -46,6 +46,7 @@ public final class MapSurface implements Surface {
      */
     private final int[] spanLeft;
     private final int[] spanRight;
+    private boolean hasFilled;
 
     public MapSurface(int width, int height) {
         this.width = width;
@@ -60,6 +61,7 @@ public final class MapSurface implements Surface {
         this.maxRow = new int[tiles];
         this.spanLeft = new int[height * tileCols];
         this.spanRight = new int[height * tileCols];
+        this.hasFilled = false;
         clearDirty();
     }
 
@@ -119,8 +121,17 @@ public final class MapSurface implements Surface {
     }
 
     public void fill(byte color) {
+        if (hasFilled && allPixelsAre(color)) return;
+        hasFilled = true;
         Arrays.fill(pixels, color);
         markAllDirty();
+    }
+
+    private boolean allPixelsAre(byte color) {
+        for (int i = 0; i < pixels.length; i++) {
+            if (pixels[i] != color) return false;
+        }
+        return true;
     }
 
     /** How many maps wide and tall the surface is, which is how many tiles there are to ask about. */
