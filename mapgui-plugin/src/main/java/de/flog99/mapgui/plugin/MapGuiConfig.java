@@ -1,6 +1,8 @@
 package de.flog99.mapgui.plugin;
 
 import de.flog99.mapgui.HandOptions;
+import de.flog99.mapgui.MapSurface;
+import de.flog99.mapgui.WallLayout;
 import de.flog99.mapgui.plugin.camera.CameraTuning;
 import de.flog99.mapgui.plugin.camera.ReuseWindow;
 import de.flog99.mapgui.plugin.camera.TrackingRanges;
@@ -15,7 +17,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-
 public record MapGuiConfig(
         String defaultPrompt,
         HandOptions hand,
@@ -57,7 +58,9 @@ public record MapGuiConfig(
                 clampFps(config.getInt("walls.fps", 10)),
                 Math.max(1, config.getInt("walls.view-distance", 48)),
                 // One map's worth is the floor - below that a wall could only ever be upscaled.
-                Math.max(128, config.getInt("walls.video-size", 256)),
+                // A wall can show at most six maps a side, so decoding above 768 is wasted.
+                Math.max(MapSurface.TILE, Math.min(WallLayout.MAX_SIDE * MapSurface.TILE,
+                        config.getInt("walls.video-size", 256))),
                 config.getBoolean("walls.prerender", true),
                 config.getBoolean("video.ffmpeg", false),
                 streams(config),
