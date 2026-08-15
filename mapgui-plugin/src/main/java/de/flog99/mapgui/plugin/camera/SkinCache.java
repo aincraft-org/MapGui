@@ -24,6 +24,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 
 /**
  * Player skins, fetched once each and kept.
@@ -37,18 +38,31 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 final class SkinCache {
 
-    /** Names handed to {@link de.flog99.mapgui.render.Textures}, which no asset pack can collide with. */
     private static final String PREFIX = "mapgui:skin/";
+    static final long[] RETRY_DELAYS_MILLIS = {1_000L, 5_000L, 30_000L};
+    interface Clock {
+        long millis();
+        default void advance(long millis) {}
+    }
+
+    private static final class SystemClock implements Clock {
+        public long millis() { return System.currentTimeMillis(); }
+    }
 
     private final Map<String, Texture> skins = new ConcurrentHashMap<>();
     private final Map<String, Boolean> fetching = new ConcurrentHashMap<>();
+    private final Clock clock;
+    private final Function<URL, BufferedImage> fetcher;
+    private final Map<String, Long> retryAfter = new ConcurrentHashMap<>();
+    private final Map<String, Integer> failures = new ConcurrentHashMap<>();
+    SkinCache() {
+        this(new SystemClock(), SkinCache::fetchUnchecked);
+    }
 
-    /**
-     * The texture name for a player, or null when their skin is not here yet.
-     *
-     * <p>Never blocks and never fetches on the calling thread: a missing skin comes back null and the caller
-     * falls back, while the download happens behind it and the next capture has it.
-     */
+    SkinCache(Clock clock, Function<URL, BufferedImage> fetcher) {
+        this.clock = clock;
+        this.fetcher = fetcher;
+    }
     String nameFor(Player player) {
         return nameFor(player.getPlayerProfile());
     }
@@ -58,7 +72,6 @@ final class SkinCache {
      *
      * <p>Null for a profile with no skin on it as well as for one whose skin has not come down yet, which is the
      * ordinary case for a head placed from a hand: the server resolves the owner in the background and the profile
-     * carries a name and nothing else until it does.
      */
     String nameFor(PlayerProfile profile) {
         URL url = profile == null ? null : profile.getTextures().getSkin();
@@ -66,7 +79,7 @@ final class SkinCache {
 
         String name = PREFIX + Integer.toHexString(url.toString().hashCode());
         if (skins.containsKey(name)) return name;
-
+        if (clock.millis() < retryAfter.getOrDefault(name, 0L)) return null;
         if (fetching.putIfAbsent(name, Boolean.TRUE) == null) {
             Thread.ofVirtual().name("mapgui-skin").start(() -> load(name, url));
         }
@@ -117,36 +130,41 @@ final class SkinCache {
     }
 
     private void load(String name, URL url) {
-        // Through HttpClient rather than ImageIO.read(URL) so it can time out: a stalled connection there hangs
-        // forever, and with the name still marked as fetching that player would never be retried.
-        try (HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
-            HttpRequest request = HttpRequest.newBuilder(URI.create(url.toString()))
-                    .timeout(Duration.ofSeconds(20))
-                    .GET()
-                    .build();
-
-            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            if (response.statusCode() != 200) {
-                fetching.remove(name);
-                return;
-            }
-
-            BufferedImage image = ImageIO.read(new ByteArrayInputStream(response.body()));
-            if (image == null) {
-                fetching.remove(name);
-                return;
-            }
-
+        try {
+            BufferedImage image = fetcher.apply(url);
+            if (image == null) throw new IllegalStateException("invalid skin");
             int width = image.getWidth();
             int height = image.getHeight();
             skins.put(name, Texture.opaqueOf(width, height, image.getRGB(0, 0, width, height, null, 0, width)));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            fetching.remove(name);
+            failures.remove(name);
+            retryAfter.remove(name);
         } catch (Exception e) {
-            // A skin that will not come down costs that player their face and nothing else, and dropping the
-            // marker means the next capture tries again.
+            failed(name);
+        } finally {
             fetching.remove(name);
+        }
+    }
+
+    private void failed(String name) {
+        int attempt = failures.merge(name, 1, Integer::sum) - 1;
+        int slot = Math.min(attempt, RETRY_DELAYS_MILLIS.length - 1);
+        retryAfter.put(name, clock.millis() + RETRY_DELAYS_MILLIS[slot]);
+    }
+    private static BufferedImage fetchUnchecked(URL url) {
+        try {
+            return fetch(url);
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static BufferedImage fetch(URL url) throws Exception {
+        try (HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build()) {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(url.toString()))
+                    .timeout(Duration.ofSeconds(20)).GET().build();
+            HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+            return response.statusCode() == 200
+                    ? ImageIO.read(new ByteArrayInputStream(response.body())) : null;
         }
     }
 }
