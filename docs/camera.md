@@ -18,13 +18,13 @@ A capture is a `CameraShot`, which is a `Frames` of exactly one frame - so
 Draw(context -> new VideoPlayer(shot).fit(VideoPlayer.Fit.COVER).paint(context.painter(), context.bounds(), 0))
 ```
 
-Try it with `/mapgui hand open camera`, or `/snapshot` from the example plugin. Aim with your head, left-click
-or sneak to shoot, right-click for settings.
+Try it with `/mapgui hand open camera`. Aim with your head, left-click or sneak to shoot, right-click for settings,
+and swap hands - F, unless you have rebound it - to put the camera away.
 
-`/snapshot x4` takes one 256x256 capture and hands back **four real map items**, a quarter each, to hang in item
-frames in a 2x2 square - their names say which corner each one goes in. A map is 128 pixels and nothing changes that,
-so the way to a bigger picture is more maps rather than a scaled-down one, and each tile is one pixel per pixel with
-nothing resampled.
+**Print** in those settings takes one 256x256 capture and hands back **four real map items**, a quarter each, to hang
+in item frames in a 2x2 square - their names say which corner each one goes in. A map is 128 pixels and nothing
+changes that, so the way to a bigger picture is more maps rather than a scaled-down one, and each tile is one pixel
+per pixel with nothing resampled.
 
 The example does not do that for itself - it is an API feature, so your plugin can print any capture onto real maps:
 
@@ -68,11 +68,11 @@ for a feature nobody has called is not something a plugin should do unasked. The
 ```
 [MapGUI] Camera textures are not installed. They will download from Mojang the first time
 [MapGUI] something takes a capture.
-[MapGUI] To get it over with now, run 'mapgui camera fetch-assets' from the console.
+[MapGUI] To turn that off, set camera.assets.download to false in config.yml.
 ```
 
-To pre-seed it instead of waiting, run `mapgui camera fetch-assets` from the **server console**. To turn it off
-entirely, set `camera.assets.download: false` - MapGUI then never makes an outbound connection.
+To turn it off entirely, set `camera.assets.download: false` - MapGUI then never makes an outbound connection. To
+have the textures in place before anybody asks, take one capture yourself.
 
 The mob shapes are baked out of the same download and kept in the same file, because they are not in the assets to
 copy - see [how mobs and items are drawn](#how-mobs-and-items-are-drawn). Nothing extra comes down for them.
@@ -169,7 +169,7 @@ for an id that states no namespace, which is how vanilla's own files are written
 
 > A pack replaced while the server has it open cannot be picked up, and worse, cannot go on being read: the
 > table of contents was read at open time and now points into bytes that have moved. MapGUI notices and says so
-> after the next capture, and `/mapgui camera status` lists the layer - but the fix is a restart. If a plugin of
+> after the next capture, and `/mapgui camera reload` names the layer - but the fix is a restart. If a plugin of
 > yours installs a pack here, write it before MapGUI enables.
 
 A client jar also carries the mob shapes, and one you supply is read for them the same way a downloaded one is. A
@@ -180,8 +180,8 @@ boxes.
 
 ### When it goes wrong
 
-`/mapgui camera status` says what state the textures are in, and for anything wrong, both what is wrong and what
-to do about it. Check `Camera#assets()` from code rather than after the fact:
+`/mapgui camera reload` re-reads the packs and then says what state the textures are in, and for anything wrong,
+both what is wrong and what to do about it. Check `Camera#assets()` from code rather than after the fact:
 
 ```java
 if (MapGui.get().camera().assets().ready()) {
@@ -260,6 +260,26 @@ weights blue error above red, so pure black lands on the terracotta. Stopping at
 instead - the nearest thing to a neutral near-black in the palette - and the horizon stops one step lighter so the
 dome keeps a faint gradient instead of flattening to one shade. Warm sky belongs to dawn and dusk, where the glow
 band puts it near the horizon on the sun's own side.
+
+**The band at dawn and dusk is the client's own, colour and shape both.** Its colour comes out of the same arithmetic
+the client bakes its `minecraft:visual/sunrise_sunset_color` keyframes from, and its shape is the fan the client
+draws: an apex on the horizon where the sun is going down, a rim that runs the whole way round the camera, and the
+colour interpolated between. That is worth taking rather than approximating, because the shape is not something an
+eye can tune from a screenshot - the band covers **the whole half of the sky the sun is on**, tapering to nothing at
+exactly a quarter turn round, and it is only about 18 degrees tall at its middle, less as it fades. Any falloff
+written to look right beside the sun is wrong ninety degrees away from it, in a way you only notice standing there.
+
+**And it hangs far deeper than it rises**, which is the other half of what a sunrise looks like. Above the sun the
+fan's rim ends it inside those 18 degrees; below there is no rim in the way, so the sheet carries on under the camera
+and the colour goes down with it - eighteen degrees over the sun there is nothing left, eighteen under there is still
+seven tenths. Nothing hides that half either: the client's dark disc is drawn only while the eye is *below* the
+world's horizon height, so anybody standing on the surface at dawn is looking at the underside of this wherever the
+world does not cover it. In a photograph that is the bottom of the frame, past where the copied world runs out.
+
+One thing is deliberately not copied. On screen that fan is enormous, nearly flat, and the camera sits all but
+exactly in its plane, so turning toward the moon can drop the orange out of the middle of the view - the same sky at
+the same moment drawing differently depending on where you are pointed. A photograph cannot have that, so the band
+is solved for along each ray instead: one sky, whichever way the camera was turned.
 
 There is no brightness setting. There was one, with presets, and it existed to escape a curve that was wrong.
 
@@ -629,10 +649,6 @@ Plus one that is per player rather than server-wide, for a plugin debugging its 
 double fps = MapGui.get().camera().frameRate(player);
 ```
 
-The camera example ships `/snapshot debug` built on nothing else, for a server that turns MapGUI's own commands off
-with `commands.enabled: false` and would rather have one place to look - see
-[`SnapshotDebug`](../examples/camera/src/main/java/de/flog99/mapgui/examples/camera/SnapshotDebug.java).
-
 Nothing has to be switched on for any of this; it is counted whether anybody is looking or not, over a rolling few
 seconds, and a `/mapgui reload` starts it over.
 
@@ -714,6 +730,11 @@ with whatever is hanging in it, at the place and size the client hangs one.
 - **Biome tints for a datapack biome exactly.** Vanilla biomes are exact - their definitions ship inside the client
   jar. A biome a datapack invented has no definition to read, so its climate is asked of the server and the colormap
   does the rest, which gets the green right and leaves the water at the default blue.
+- **Biome borders ramp straight rather than raggedly.** Tints are blended across the 5x5 square of biomes around a
+  block, as the client blends them, so a border is a gradient over five blocks and not a line drawn across the grass.
+  What is missing is the wobble under it: the client jitters the biome lookup itself with a hash of the world's seed,
+  which frays the edge, and a snapshot reads the biome straight off the 4 block grid it is stored on. Eight hashes per
+  sample is not a thing to put in front of every tinted pixel for an edge that is already five blocks wide.
 - **The clouds the viewer is actually seeing.** Whether a client draws clouds at all, and which of the two kinds, is
   not in the settings packet, so it is a setting on the capture rather than a reading. Same for field of view.
   Render distance *is* sent, which is why `maxDistance` can follow it.

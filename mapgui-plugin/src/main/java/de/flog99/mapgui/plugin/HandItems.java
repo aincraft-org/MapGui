@@ -45,9 +45,15 @@ final class HandItems {
     private final MapGuiPlugin plugin;
     private final NamespacedKey guiKey;
     private final NamespacedKey focusKey;
+    private final NamespacedKey ownKey;
 
-    /** The map id of the item each player's session was opened for, so a swap to a different one is noticed. */
-    private final Map<UUID, Integer> showing = new HashMap<>();
+    /**
+     * Which GUI each player's session was opened for, so a swap to a different one is noticed.
+     *
+     * <p>By name, since a pinned map id is shared by every copy. Swapping between two of the same screen therefore
+     * leaves it alone, which keeps its scroll position.
+     */
+    private final Map<UUID, String> showing = new HashMap<>();
 
     /**
      * Players whose screen was closed while they were still holding the item.
@@ -62,6 +68,7 @@ final class HandItems {
         this.plugin = plugin;
         this.guiKey = new NamespacedKey(plugin, "gui");
         this.focusKey = new NamespacedKey(plugin, "focus");
+        this.ownKey = new NamespacedKey(plugin, "own");
     }
 
     /**
@@ -82,7 +89,11 @@ final class HandItems {
         ItemStack item = new ItemStack(Material.FILLED_MAP);
         // The id vanilla renders by. Deliberately not a MapView: nothing about this map exists on the server, so
         // there is no view to attach and no id for the world to keep.
-        item.setData(DataComponentTypes.MAP_ID, MapId.mapId(MapIds.next()));
+        //
+        // Stamped once and then carried by the stack for good, which is why a pinned id belongs here as much as on
+        // the session: a pack keying on the id has to recognise the item sitting in a chest, not only the open one.
+        int mapId = hand.mapId() == HandOptions.ANY_MAP_ID ? MapIds.next() : hand.mapId();
+        item.setData(DataComponentTypes.MAP_ID, MapId.mapId(mapId));
         item.editMeta(MapMeta.class, meta -> {
             meta.getPersistentDataContainer().set(guiKey, PersistentDataType.STRING, gui);
             meta.getPersistentDataContainer().set(focusKey, PersistentDataType.STRING, hand.focus().name());
@@ -92,7 +103,7 @@ final class HandItems {
 
     /** The GUI an item opens, or null for an item that is not one of ours. */
     @Nullable
-    private String guiOf(@Nullable ItemStack item) {
+    String guiOf(@Nullable ItemStack item) {
         if (item == null || item.getType() != Material.FILLED_MAP || !item.hasItemMeta()) return null;
 
         return item.getItemMeta().getPersistentDataContainer().get(guiKey, PersistentDataType.STRING);
@@ -112,16 +123,34 @@ final class HandItems {
     }
 
     /**
-     * A map item bound to nothing but its own id.
+     * A map item belonging to one session and nothing else.
      *
      * <p>What {@code open(player, screen, HandOptions.item())} hands over: a real item for one player and one
      * screen, with no registered name behind it - so when it leaves them, the screen simply ends rather than
      * opening for whoever picked it up. The sweep ignores it for exactly that reason, since it has no GUI to name.
+     *
+     * <p>The token is how the session knows this stack from any other - not the map id, which a pinned screen
+     * shares between every copy.
      */
-    static ItemStack blank(int mapId) {
+    ItemStack blank(int mapId, UUID own) {
         ItemStack item = new ItemStack(Material.FILLED_MAP);
         item.setData(DataComponentTypes.MAP_ID, MapId.mapId(mapId));
+        item.editMeta(MapMeta.class, meta -> meta.getPersistentDataContainer().set(ownKey, PersistentDataType.STRING, own.toString()));
         return item;
+    }
+
+    /** The session a bare item was handed over for, or null for anything that is not one. */
+    @Nullable
+    UUID ownOf(@Nullable ItemStack item) {
+        if (item == null || item.getType() != Material.FILLED_MAP || !item.hasItemMeta()) return null;
+
+        String stored = item.getItemMeta().getPersistentDataContainer().get(ownKey, PersistentDataType.STRING);
+        try {
+            return stored == null ? null : UUID.fromString(stored);
+        } catch (IllegalArgumentException e) {
+            // Somebody's edited item. It is not one of ours, which is all this had to answer.
+            return null;
+        }
     }
 
     /** The map id stamped into an item, or -1 for anything that is not a map with one. */
@@ -171,8 +200,8 @@ final class HandItems {
         }
 
         int mapId = mapIdOf(held);
-        Integer open = showing.get(id);
-        if (open != null && open == mapId) {
+        String open = showing.get(id);
+        if (open != null && open.equals(guiOf(held))) {
             // Ours, and gone under us: closed by the screen itself, by a command, by another plugin. Left closed
             // until the item is put down, or "done" would be a button that does nothing.
             if (session == null) {
@@ -200,7 +229,7 @@ final class HandItems {
         // Recorded after the open, not before: opening closes whatever was up first, and that close is what would
         // have thrown this away again.
         plugin.sessions().openCarried(player, screen, HandOptions.item().focus(focusOf(held)), gui, mapId);
-        showing.put(player.getUniqueId(), mapId);
+        showing.put(player.getUniqueId(), gui);
     }
 
     /** The item of ours in either hand, main hand first, or null for a player holding none. */

@@ -5,7 +5,7 @@ large, and while it is up the player is in it. That is the right answer for a me
 done.
 
 It is the wrong answer for a bingo card, a phone, a quest log or a television remote. Those want to be *carried* -
-in one slot, alongthe player's own things, put away and taken out again. So how a screen is carried is a setting.
+in one slot, along the player's own things, put away and taken out again. So how a screen is carried is a setting.
 
 ```java
 MapGui.get().open(player, new BingoCard(player), HandOptions.pinned(8).allowOffhand(true));
@@ -93,6 +93,64 @@ player and that screen. With no registered name behind it, though, so when the i
 screen ends and the item goes with it - MapGUI handed it over, so MapGUI takes it back. An item somebody found for
 themselves is never confiscated that way.
 
+## Giving a resource pack something to recognise
+
+A filled map is drawn from its `map_id` component and nothing else - the client reads no NBT, no custom data, no
+name. So the id is the only handle a pack has on one map item as against another, and by default MapGUI hands out
+ids nobody can predict.
+
+`mapId` pins one:
+
+```java
+HandOptions phone = HandOptions.item().mapId(Integer.MAX_VALUE - 1);
+
+MapGui.get().guis().registerOpenable("phone", "A phone", player -> new PhoneScreen(player));
+ItemStack item = MapGui.get().item("phone", phone);
+```
+
+Then a pack overrides `assets/minecraft/items/filled_map.json` and gives that id its own model, so a phone looks
+like a phone rather than a rolled-up paper map:
+
+```json
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:component",
+    "component": "minecraft:map_id",
+    "cases": [
+      { "when": 2147483646, "model": { "type": "minecraft:model", "model": "myserver:item/phone" } }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "minecraft:item/filled_map",
+      "tints": [
+        { "type": "minecraft:constant", "value": -1 },
+        { "type": "minecraft:map_color", "default": 4603950 }
+      ]
+    }
+  }
+}
+```
+
+A map id serialises as a plain integer, so `when` is the number itself. Keep the `fallback` as vanilla's own
+definition or every other map in the game loses its colours.
+
+**Take one off the top**, `Integer.MAX_VALUE - 1` and downwards. The range has three parts:
+
+| Range | Whose |
+|---|---|
+| 0 upwards | the server's real maps. Painting one replaces the picture of a map somebody owns, which is why ids at or below 0 are refused outright |
+| **the top `MapIds.RESERVED` (1024), down to `MapIds.LOWEST_PINNABLE`** | **yours to pin.** MapGUI never hands these out |
+| everything below that, downwards | MapGUI's own, from `MapIds` - wall tiles, video frames, sessions |
+
+Nothing polices which of the thousand you take, so two plugins both reaching for `MAX_VALUE - 1` would collide. If
+yours is one of several on a server, count down from somewhere of your own rather than from the top.
+
+A collision costs you the model and nothing else: MapGUI recognises its own items by the GUI name in their
+persistent data, not by the id, so two screens sharing one still work.
+Each player is sent their own pixels for it, so a pinned id shows everybody their own screen - two copies in sight at
+once are the only exception, and they show one picture between them.
+
 ## Your item, MapGUI's screen
 
 The other shape of the same idea: the item is **yours** and the map sits somewhere else. A camera with its
@@ -146,6 +204,7 @@ a plugin first.
   nothing pretended about the cursor.
 - **Keep the real item in a covered slot usable.** A pinned map hides whatever is really in its slot, and an
   offhand map hides a shield. Both are inert while the screen is up and both come straight back when it closes -
-  nothing is destroyed, and nothing can be dropped by accident either, since Q is swallowed there.
+  nothing is destroyed, and nothing can be dropped by accident either, since Q never reaches the covered item. On a
+  pinned map in the main hand Q closes the screen instead; on one with no mouse it does nothing at all.
 - **Survive a logout by itself.** A real item does, being an item, and the screen opens again the moment its owner
   picks it up. A faked map is session state and goes when the session does.

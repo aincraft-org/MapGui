@@ -3,11 +3,13 @@ package de.flog99.mapgui.examples.camera;
 import de.flog99.mapgui.Click;
 import de.flog99.mapgui.MapGui;
 import de.flog99.mapgui.Marker;
+import de.flog99.mapgui.HandOptions;
 import de.flog99.mapgui.Screen;
 import de.flog99.mapgui.camera.Camera;
 import de.flog99.mapgui.camera.CameraAssets;
 import de.flog99.mapgui.camera.CameraOptions;
 import de.flog99.mapgui.camera.CameraShot;
+import de.flog99.mapgui.map.MapPrinter;
 import de.flog99.mapgui.media.VideoPlayer;
 import de.flog99.mapgui.ui.Align;
 import de.flog99.mapgui.ui.Colors;
@@ -31,7 +33,7 @@ import static de.flog99.mapgui.ui.Ui.Spinner;
 import static de.flog99.mapgui.ui.Ui.Text;
 
 /**
- * Aim with your head, left-click or sneak to capture, right-click for settings.
+ * Aim with your head, left-click or sneak to capture, right-click for settings, swap hands to put it away.
  *
  * <p>The input model is the point of this example. A cursor's vertical axis <i>is</i> the player's pitch, so a
  * screen that asks them to press a button also decides where they are looking - which is useless for a camera.
@@ -42,6 +44,9 @@ public final class CameraScreen extends Screen {
 
     private static final List<Integer> SIZES = List.of(Camera.MAP_SIZE, 96, 64);
     private static final List<Integer> FOVS = List.of(50, 70, 90, 110);
+
+    /** Maps to a side for the print, which is four maps and the size a wall of them is worth hanging. */
+    private static final int PRINT_ACROSS = 2;
 
     /** Far enough up that the client's label sits on the map rather than off the bottom of it. */
     private static final int HINT_INSET_Y = 8;
@@ -57,6 +62,24 @@ public final class CameraScreen extends Screen {
     @Override
     public Component title() {
         return Component.text("Camera", NamedTextColor.AQUA);
+    }
+
+    /**
+     * In the offhand, so the main hand stays the player's while they line a shot up.
+     *
+     * <p>Up means up: an offhand map's default is for the swap key to toggle focus, which on a viewfinder shows
+     * nothing at all - there is no cursor to appear - so the shutter was simply dead until the key had been pressed
+     * once. A camera is a mode instead. It has the clicks from the moment it is raised, and the same key puts it away.
+     */
+    @Override
+    public HandOptions hand() {
+        return HandOptions.offhand().focus(HandOptions.Focus.ALWAYS);
+    }
+
+    /** Swapping hands, which an offhand map has nothing else to spend on - and it costs none of the aim a button would. */
+    @Override
+    protected void onSwapHands() {
+        close();
     }
 
     /** Only the settings panel has anything to point at, so only it takes the player's aim. */
@@ -149,6 +172,7 @@ public final class CameraScreen extends Screen {
                 setting("People", current.entities() ? "on" : "off", () -> options.set(current.entities(!current.entities()))),
                 setting("Clouds", current.clouds() ? "on" : "off", () -> options.set(current.clouds(!current.clouds()))),
                 setting("Haze", current.fog() ? "on" : "off", () -> options.set(current.fog(!current.fog()))),
+                setting("Print", PRINT_ACROSS + " by " + PRINT_ACROSS + " maps", this::print),
                 Spacer(),
                 // Back and Close, because the viewfinder has no cursor and both of its clicks are the shutter and
                 // this panel - so without a button here there is nothing a player can point at to put the map down.
@@ -176,7 +200,7 @@ public final class CameraScreen extends Screen {
 
     /**
      * Kept to about twenty characters: a map line has no more room than that and does not wrap. The full
-     * sentence and the fix live in the console and in {@code /mapgui camera status}.
+     * sentence and the fix live in the console.
      */
     private String placeholder() {
         if (notice.get() != null) return notice.get();
@@ -185,11 +209,47 @@ public final class CameraScreen extends Screen {
         return switch (MapGui.get().camera().assets()) {
             case CameraAssets.Ready ignored -> "Aim and left-click";
             // No percentage. It is a 39 MB download that spends its first stretch at nought, and a number that
-            // does not move reads as broken where a spinner reads as busy. The figure is in /mapgui camera status,
+            // does not move reads as broken where a spinner reads as busy. The figure is in the console,
             // which is where somebody who wants one goes.
             case CameraAssets.Loading ignored -> "Loading textures";
             case CameraAssets.Unavailable ignored -> "No textures yet";
         };
+    }
+
+    /**
+     * One capture cut into real maps to hang on a wall, which is what {@link MapPrinter} is for.
+     *
+     * <p>Asked for at exactly {@code across * 128} pixels so every tile is a whole map at one pixel per pixel: the
+     * map is 128 pixels and nothing changes that, so the way to a bigger picture is more maps.
+     */
+    private void print() {
+        if (capturing.get()) return;
+
+        if (!MapGui.get().camera().assets().ready()) {
+            notice.set("Textures are not installed yet");
+            return;
+        }
+
+        capturing.set(true);
+        notice.set(null);
+        MapGui.get().camera().capture(player(), options.get().size(MapPrinter.sizeFor(PRINT_ACROSS)), taken -> {
+            capturing.set(false);
+            if (taken == null) {
+                notice.set("Capture failed");
+                return;
+            }
+
+            // Read off the shot rather than reusing the constant, since the cut has to follow the pixels that arrived.
+            int grid = MapPrinter.mapsAcross(taken);
+            if (grid == 0) {
+                notice.set("That would not cut into whole maps");
+                return;
+            }
+
+            player().sendMessage(Component.text(SnapshotTiles.give(player(), taken, grid) + " maps", NamedTextColor.GREEN)
+                    .append(Component.text(" - place them in item frames in a " + grid + " by " + grid
+                            + " square, the way their names say.", NamedTextColor.WHITE)));
+        });
     }
 
     private void take() {

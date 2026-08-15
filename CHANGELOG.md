@@ -3,9 +3,62 @@
 Notable changes, newest first. This project follows [semantic versioning](https://semver.org/) - the public
 surface is `mapgui-api`, which carries the layout engine inside it.
 
-## Unreleased
+## 1.1.0
+
+The camera: the world photographed onto a map, with real block textures, the people in view wearing their own skins,
+and a sky with the sun, moon and stars where they actually are.
+Also real map printing, more ways to carry a GUI, and a live view driven for you.
 
 ### Running a server
+
+- **The band at dawn and dusk is the client's own now**, in colour and in shape, where it was a falloff curve with two
+  hand-picked oranges in it.
+  What was wrong was the shape rather than the colour. Vanilla's band covers **the whole half of the sky the sun is
+  on**, tapering to nothing at exactly a quarter turn round - so looking at the point half way between the sun and the
+  moon you catch the last of it as a shallow slanted edge. Ours faded on a curve that was near enough beside the sun
+  and had run out well before that, and it went on to a hard stop 46 degrees up, where vanilla's band is only about 18
+  degrees tall at its middle and thinner as it fades.
+  It is also **not symmetric about the skyline**, which is most of what a sunrise looks like: over the sun the fan's
+  rim ends it within those 18 degrees, and under it there is no rim in the way, so the sheet carries on beneath the
+  camera and the colour hangs a long way down. Eighteen degrees above the sun there is nothing left; eighteen below,
+  seven tenths of it. That half is not a detail that never shows - the client's dark disc, the one thing that would
+  hide it, is only drawn while the eye is *below* the world's horizon height - and it is exactly the half a capture
+  puts low in the frame, past where the copied world runs out.
+  Both halves are read out of the 26.2 client rather than matched by eye. The colour is the arithmetic its
+  `minecraft:visual/sunrise_sunset_color` keyframes are baked from - `SunGlowTest` holds it against all 32 of them,
+  tick and ARGB verbatim, and every channel of every one lands within 1 of 255, which for a keyframe rounded to a
+  byte is exact. The shape is `SkyRenderer.buildSunriseFan`: an apex 100 out on the horizon at the sun's side, a rim
+  of radius 120 running right round the camera lifted `40 * alpha` on that side, and the colour interpolated from one
+  to the other.
+  **Traced rather than rasterized**, which is the one deliberate difference. That fan is enormous, nearly flat, and
+  the camera sits all but exactly in its plane - the arrangement a near plane cuts through - so on screen turning
+  toward the moon can drop the orange out of the middle of the view, and the same sky at the same moment draws
+  differently depending on where you are pointed. Solving for the surface along each ray asks where the band is
+  rather than where it lands on a screen, so a capture of one sky is one sky whichever way the camera was turned.
+  It costs nothing: the fan is a ruled surface, so where a ray meets it comes out in closed form, with no
+  trigonometry and no stepping round its sixteen segments.
+
+- **Biome tints are blended across the biomes around a block**, the way the client blends them, so a border is a ramp
+  over five blocks rather than a line drawn across the ground.
+  Grass, foliage and water are one flat colour per biome, so a plains meeting a forest used to change green between
+  two neighbouring blocks - which the eye finds immediately, and which reads as a mown lawn rather than as a wood
+  starting. A river through a swamp had its banks stencilled in. All four tints the world answers go through it:
+  grass, foliage, dry foliage and water.
+  The client walks all twenty-five blocks of its 5x5 square for every block it draws. This reads **four**. A biome is
+  one value across a 4x4x4 cell and a run of five blocks crosses exactly one cell boundary whatever it is aligned to,
+  so the square covers at most four cells, and those twenty-five samples are those four weighted by how many blocks
+  each covers - the same sum over the same numbers, divided the same way, so it comes out bit-identical.
+  `BiomeBlendTest` holds it against a brute-force walk of all twenty-five, at every alignment and both signs.
+  **It does not cost a frame anything measurable.** Four biome reads instead of one, on the pixels that see a tinted
+  face and nowhere else, and only where the four disagree is anything averaged - a square five blocks wide is inside
+  one biome nearly everywhere, and the server hands back the same interned biome for each corner, so the common
+  answer is three reference comparisons away. Measured over a 128x128 frame: about 7 ns more per tint resolved and
+  2,200 of them in the frame, so 15 µs against a trace that takes tens of milliseconds.
+  A tint is also **remembered per position for the frame**, the way a fluid's corners already were and good for the
+  same reason - the world a frame traces is a snapshot and cannot change under it. That takes 42% of the tint lookups
+  out of the same frame, including the ones a single sample was already paying for.
+  The biome is read at the block's own height, which is what it already was: **biomes are 3D**, and a lush cave under
+  a desert tints its own vines while the sand over it stays sand. The square itself is flat, as the client's is.
 
 - **The block an enderman is carrying and the poppy an iron golem is offering are both drawn**, and both mobs take the
   pose their own model takes to hold one.
@@ -15,10 +68,54 @@ surface is `mapgui-api`, which carries the layout engine inside it.
   offset and one turn, so what a capture shows and what a player is looking at agree.
 
 - Fixed: **the spinner was not round.** Its ring sat a pixel high, so the top dot was half outside the box with the
-  rest of it cut off, and there was a blank row under the bottom one.
-  Placing a dot dropped half a pixel twice, both the same way: the middle of a box is not the middle of a pixel, and
-  half of a two pixel dot is not a whole number. The two halves made a whole one. At the default size every dot is now
-  square and the ring is as far from the middle on all four sides.
+  rest of it cut off and a blank row under the bottom one, and the four dots on the axes each leaned half a pixel the
+  same way, which left the ring symmetric about nothing.
+  A dot sits its own width in from the far edge, so the two facing each other are `size - dot` apart - and where that
+  was odd their middle fell between two pixels and every dot rounded to the same side of it. The ring now gives up
+  that odd pixel and lands on whole ones, which makes it **exactly itself turned a quarter circle, and under both
+  mirrors too**. Eight dots on a small ring still cannot all sit on a circle, but they are now all equally not-quite
+  rather than differently so, and that is the part an eye picks up.
+  `size` became a limit rather than an order with it: a spinner measures itself at the ring it can actually draw, so
+  there is never a spare row and column beside it for a caption to line up against. The default is 14 rather than 13,
+  which is a size the ring fills exactly.
+
+- **The examples have no commands of their own.** Every demo is reached through `/mapgui hand open` and
+  `/mapgui wall place`, so a server installing them gains no command surface at all. `/todo`, `/minimap`,
+  `/snapshot` and `/walls` are gone with everything that hung off them: the camera's map printing moved into the
+  screen's settings, where a **Print** row hands back four real maps, and its debug dump went - what it reported is
+  `/mapgui camera performance`, which stays.
+
+- **`/mapgui camera status` and `fetch-assets` are gone.** Status said what the textures were doing, which
+  `/mapgui camera reload` now reports after re-reading them, and the bare `/mapgui camera` prints the performance
+  report instead. Fetching by hand only did early what the first capture does anyway. Both are out of the docs.
+
+- **Q closes a map pinned to the main hand**, where it used to be swallowed and do nothing. The key already could not
+  reach anything else there - it would have thrown away whatever real item the map is covering - so the map was the
+  only thing it could mean. A screen with no mouse keeps the old behaviour, since one carried rather than used is not
+  something Q should end. The action bar says so.
+
+- **The examples state how they are carried** rather than following the server's default, so each demo is the same
+  wherever it is installed. The gallery, the to-do list and the claim map are popups, since all three want the wheel
+  and the clicks; the minimap and the camera are worn in the offhand, where the hotbar stays the player's. Swapping
+  hands puts the minimap and the camera away, which a screen with no cursor otherwise has no key for. All seven of
+  them, including the two that are a second registration rather than a demo of their own - the gallery's type page
+  and the jukebox in a hand.
+
+- Fixed: **the camera ignored the first clicks after it was opened, and swapping hands appeared to do nothing.** An
+  offhand map's default is for the swap key to toggle whether the screen has the player's clicks, which the camera
+  took - but a viewfinder has no cursor, so the toggle changed nothing anybody could see and the shutter was simply
+  dead until the key had been pressed once, with no way to tell that from a camera that was broken. It is a mode
+  now: it has the clicks from the moment it is raised, and the same key puts it away, through the `onSwapHands`
+  the minimap already closes on.
+
+- Fixed: **the action bar described the state after the focus key rather than the one it was read in.** A map that
+  toggles - by swapping hands or by right-clicking the air - opens with the player carrying it rather than using it,
+  and the line greeting them said what a click would do and offered to put down a map they had not yet picked up. It
+  says how to raise it instead, and says it again when the key is pressed, so it tracks the toggle rather than
+  standing from the moment the screen opened.
+
+- Fixed: **FFmpeg printed a stream dump to the console every time it opened a video.** Codec tables, bitrates and
+  handler names, in a log a server owner reads for their own reasons. Its level is set to errors on the way in now.
 
 - Fixed: **a carried block wore no tint, so a grass block had a grey top.** A block being carried has no biome to ask,
   and `grass_block_top` is a flat grey until something colors it.
@@ -536,6 +633,24 @@ surface is `mapgui-api`, which carries the layout engine inside it.
   `Focus` rather than a whole `HandOptions`, because the screen is always in the offhand: any other carry mode puts
   the map in the hotbar, where reaching for it would mean letting go of the item that opened it.
 - Both are swept once a tick rather than listened for, since an item reaches a hand a dozen ways.
+- **`HandOptions#mapId` pins the map id a screen is drawn under**, so a resource pack can recognise one map item as
+  against another and give it its own model - a phone that looks like a phone rather than a rolled-up paper map.
+  The client draws a filled map from its `map_id` component and reads nothing else about it, so the id is the only
+  handle a pack has, and MapGUI's own ids are picked to be unpredictable. A pinned one is stamped into the item as
+  well as used for the session, so a pack recognises the item in a chest and not only the open screen.
+  **The top 1024 ids are reserved for it**, `MapIds.RESERVED`, so `Integer.MAX_VALUE - 1` is a number a pack can be
+  written against and keep. MapGUI's own counter starts below the band rather than at the very top, where it would
+  otherwise have handed that id to the second screen opened after every restart. Ids at or below 0 are refused at the
+  other end, since the server allocates real map ids upwards from there and painting one replaces the picture of a
+  map somebody owns. See [carrying a GUI](docs/hand.md#giving-a-resource-pack-something-to-recognise) for the
+  `items/filled_map.json` side of it.
+- **A carried screen now recognises its own item by name rather than by map id.** Which hand holds it, whether it is
+  still being carried, and which stack to take back when it closes were all answered by comparing the id stamped into
+  the stack - fine while every item had one of its own, wrong the moment two share one. Two screens pinned to the same
+  id would have resolved to whichever hand matched first, taking the cursor and the pitch clamp with it, and a swap
+  between them would have left the first screen up. The GUI's name is in the item's data already, so that is what is
+  asked now. Swapping between two copies of the same screen also stops throwing it away and reopening it, which
+  keeps its scroll position.
 - **A swallowed right-click now puts the held slot back.** Eating the packet is what stops the item being used, but
   the client had already predicted that use and was never told otherwise - so a trigger item passed to
   `openWhileHolding` appeared to be consumed, scoped or drawn, and stayed that way until something unrelated

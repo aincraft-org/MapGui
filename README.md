@@ -14,7 +14,7 @@ can join your server can use it.
 
 **Paper 26.2 · Java 25 · no runtime dependencies**
 
-<!--TODO: Video demonstration -->
+<img width="645" height="453" alt="382400600-716980a6-71e2-4a04-b79b-cdd2d637fde3" src="https://github.com/user-attachments/assets/1051ab81-83a8-4568-ae55-88d8a01e7fca" />
 
 <img width="605" height="499" alt="polish_cow" src="https://github.com/user-attachments/assets/7b3f0a15-e847-4208-8e49-9c5dbcccf4e1" />
 
@@ -90,23 +90,23 @@ plugins/
 2. **Restart the server.** `/reload` is not enough: the examples declare `load: BEFORE` on MapGUI, and that
    ordering is only honoured at startup.
 3. As an operator, run any of these. Every permission defaults to `op`, so there is nothing to configure first.
+   **The demos register no commands of their own** - everything they can do is reached through `/mapgui hand open`
+   and `/mapgui wall place`, so installing them costs your server no command surface at all.
 
 | Command | Shows |
 |---|---|
 | `/mapgui hand open gallery` | every widget, and the layout rules side by side |
 | `/mapgui hand open todo` | state, scrolling, text prompts, per-row closures |
-| `/mapgui hand open minimap` | terrain rendering, and a screen with no cursor |
-| `/mapgui hand open camera` | a screenshot of the world, and a screen that aims instead of pointing |
+| `/mapgui hand open minimap` | terrain rendering, and a screen with no cursor - worn in the offhand, swap hands to put it away |
+| `/mapgui hand open camera` | a screenshot of the world, and a screen that aims instead of pointing - offhand, raised as a mode, swap hands to put it away |
 | `/mapgui hand open claims` | a full-screen map, one `Draw` node standing in for a grid, cursor tracking |
 | `/mapgui wall place draw` | a wall everyone draws on, with a palette only you can see |
 | `/mapgui wall place jukebox` | a wall the room shares - registered for a hand *and* a wall |
 | `/mapgui wall place polish-cow-transparent.gif` | a GIF on the wall. Shipped inside the examples jar, and no FFmpeg needed |
-| `/snapshot` | the camera with its own command, aim with your head and left-click to shoot |
-| `/todo` | the same list, opened by the plugin rather than by an admin - which is how your users reach a GUI |
-| `/walls here` | a plugin placing a wall itself rather than letting an admin site it |
 
-Move the mouse to aim, **right-click to select, Q to close**, and the wheel to scroll. Walking, jumping and
-sneaking all still work. Placing a wall is left-click for the bottom-left corner, look at the far corner to
+Move the mouse to aim, **right-click to select**, and the wheel to scroll. **Q closes** the ones that fill the
+hotbar; the minimap and the camera are worn in the offhand, where **swapping hands** puts them away. Walking, jumping
+and sneaking all still work. Placing a wall is left-click for the bottom-left corner, look at the far corner to
 size it, then left-click again - or right-click to cancel.
 
 Delete the examples jar when you are done; that is the whole off switch, and MapGUI keeps working without it.
@@ -123,7 +123,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.github.flog99:mapgui-api:1.0.0")
+    compileOnly("io.github.flog99:mapgui-api:1.1.0")
 }
 ```
 

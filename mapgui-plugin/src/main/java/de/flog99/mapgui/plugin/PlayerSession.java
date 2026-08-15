@@ -23,6 +23,7 @@ import org.bukkit.Registry;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.map.MapCursor;
 import org.jetbrains.annotations.Nullable;
 
@@ -34,7 +35,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * Drives one player's menu.
@@ -118,6 +121,9 @@ final class PlayerSession implements Session {
     /** The catalog entry an admin opened this from, or null when a plugin opened it itself. */
     @Nullable
     private String openedFrom;
+
+    /** Marks the bare item handed over for this session, so it is known from every other map in the inventory. */
+    private final UUID own = UUID.randomUUID();
 
     private final Map<String, MapCursor.Type> cursorTypes = new HashMap<>();
 
@@ -290,6 +296,12 @@ final class PlayerSession implements Session {
 
         focused = wanted;
         needsPaint = true;
+        // Under a toggling mode the line says something different either side of the key, and the key is the
+        // player's own - so say it again rather than leaving the one from opening standing. Never before
+        // start() has sent the first, or opening would send two.
+        if (task != null && hand.togglesFocus()) {
+            player.sendActionBar(Component.text(controls()));
+        }
         reaim();
     }
 
@@ -392,7 +404,8 @@ final class PlayerSession implements Session {
     // ---- lifecycle ----
 
     void start(int mapId) {
-        display.open(this, hand, mapId);
+        ItemStack carried = hand.carry() == HandOptions.Carry.ITEM ? plugin.handItems().blank(mapId, own) : null;
+        display.open(this, hand, mapId, mine(), carried);
         refocus();
         player.sendActionBar(Component.text(controls()));
 
@@ -405,8 +418,29 @@ final class PlayerSession implements Session {
         task = player.getScheduler().runAtFixedRate(plugin, scheduled -> tick(), null, 1L, 1L);
     }
 
-    /** What to tell the player they can do, which depends on how the map got into their hands. */
+    /**
+     * Which stack in the inventory this session's screen belongs to, for the carry modes where that is a real item.
+     *
+     * <p>Either the player's own copy, by the GUI's registered name, or the bare one MapGUI handed them, by its
+     * token. Never the map id: a pinned one is worn by every copy of a screen and could name the wrong hand.
+     */
+    private Predicate<ItemStack> mine() {
+        HandItems items = plugin.handItems();
+        String gui = openedFrom;
+        return stack -> own.equals(items.ownOf(stack)) || (gui != null && gui.equals(items.guiOf(stack)));
+    }
+
+    /**
+     * What to tell the player they can do, which depends on how the map got into their hands - and on whether they
+     * have picked it up yet.
+     *
+     * <p>A toggling mode opens with the map down, where nothing takes a click at all. Saying what a click does there,
+     * and calling the toggle a way to put the map <i>down</i>, described the state after the key rather than the one
+     * the line is read in - so the only true thing to say is how to pick the map up.
+     */
     private String controls() {
+        if (!focused && hand.togglesFocus()) return pickUp();
+
         String hint = switch (screen().activateOn()) {
             case RIGHT -> "Right-click to select";
             case LEFT -> "Left-click to select";
@@ -416,7 +450,19 @@ final class PlayerSession implements Session {
         return hint + switch (hand.carry()) {
             case POPUP -> ", Q to close";
             case ITEM -> ", scroll away to put it down";
-            case PINNED, OFFHAND -> focusHint();
+            // Q reaches a pinned map in the main hand, where it is the thing being held.
+            case PINNED -> hand.reachesMainHand() ? focusHint() + ", Q to close" : focusHint();
+            case OFFHAND -> focusHint();
+        };
+    }
+
+    /** The other half of a toggle, for the map the player is carrying but has not raised. */
+    private String pickUp() {
+        return switch (hand.focus()) {
+            case SWAP_HANDS -> "Swap hands to use it";
+            case RIGHT_CLICK -> "Right-click the air to use it";
+            // Nothing else toggles, so nothing else reaches here.
+            default -> "";
         };
     }
 
@@ -441,25 +487,24 @@ final class PlayerSession implements Session {
     private final PacketInput.Handler gestures = new PacketInput.Handler() {
 
         /**
-         * Q closes a popup, which has no other way out and nothing to drop.
+         * Q closes a faked map the player is using: a popup, which has no other way out, and one in the main hand,
+         * where the key would otherwise throw away whatever real item the map is covering.
          *
-         * <p>Otherwise it is swallowed only when the faked map is the thing Q would throw away, which means the
-         * main hand: there is nothing of ours to drop, and letting it through would discard whatever is really in
-         * the slot the map is covering.
+         * <p>Swallowed rather than closing for a screen with no mouse, which is carried rather than used - there is
+         * still nothing of ours to drop, but ending it is not what its player meant.
          *
-         * <p>Anywhere else it is the player's own item being dropped and the key is theirs. That covers an offhand
-         * map, where Q always drops from the other hand - swallowing it there left a player holding a real item
-         * unable to drop it, for a map the key was never going to reach. A real item is left alone too, since
-         * dropping it is allowed and is how the player puts the screen away.
+         * <p>Anywhere else the key is theirs. That covers an offhand map, where Q always drops from the other hand -
+         * swallowing it there left a player holding a real item unable to drop it, for a map the key was never going
+         * to reach. A real item is left alone too, since dropping it is how the player puts that screen away.
          */
         @Override
         public boolean drop() {
-            if (hand.fillsHotbar()) {
-                onMainThread(PlayerSession.this::close);
-                return true;
-            }
+            if (!hand.fillsHotbar() && !(hand.faked() && mapInMainHand)) return false;
 
-            return hand.faked() && mapInMainHand;
+            if (hand.fillsHotbar() || focused) {
+                onMainThread(PlayerSession.this::close);
+            }
+            return true;
         }
 
         @Override

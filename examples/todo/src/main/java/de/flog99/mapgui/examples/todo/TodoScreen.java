@@ -1,5 +1,6 @@
 package de.flog99.mapgui.examples.todo;
 
+import de.flog99.mapgui.HandOptions;
 import de.flog99.mapgui.Screen;
 import de.flog99.mapgui.prompt.TextPrompt;
 import de.flog99.mapgui.ui.Align;
@@ -72,6 +73,12 @@ public final class TodoScreen extends Screen {
     @Override
     public Component title() {
         return Component.text("To-Do", NamedTextColor.AQUA);
+    }
+
+    /** A popup, because the list scrolls: the plain wheel is the menu's own only where every slot shows the map. */
+    @Override
+    public HandOptions hand() {
+        return HandOptions.popup();
     }
 
     @Override

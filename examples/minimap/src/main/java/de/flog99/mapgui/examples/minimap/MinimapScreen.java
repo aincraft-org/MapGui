@@ -50,6 +50,18 @@ public final class MinimapScreen extends Screen {
     }
 
     /**
+     * Swapping hands puts it away.
+     *
+     * <p>A map with no cursor and no clicks has no key of its own, so without this the only way out is the command
+     * that opened it. The swap-hands key is free here for the same reason the mouse is: nothing is being held to
+     * swap, and {@link de.flog99.mapgui.HandOptions.Focus#NEVER} never claims it as a focus toggle.
+     */
+    @Override
+    protected void onSwapHands() {
+        session().close();
+    }
+
+    /**
      * Draw an icon for the player themselves. Off by default: the terrain is centered on them, so the
      * icon can only ever sit in the middle of the map and say nothing you did not already know.
      */
@@ -95,7 +107,7 @@ public final class MinimapScreen extends Screen {
                 Row(Text(this::coordinates).color(Color.WHITE).shadow().padding(1, 3)
                         .background(panel).radius(2)).justify(Justify.CENTER).fillWidth(),
                 Spacer(),
-                Row(Text("press Q to close").color(new Color(200, 200, 200)).padding(1, 3)
+                Row(Text("swap hands to close").color(new Color(200, 200, 200)).padding(1, 3)
                         .background(panel).radius(2)).justify(Justify.CENTER).fillWidth()
         ).gap(2).padding(4).align(Align.STRETCH);
     }

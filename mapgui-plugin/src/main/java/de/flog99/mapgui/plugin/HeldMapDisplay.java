@@ -15,6 +15,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
 import java.util.UUID;
 
 /**
@@ -42,16 +43,19 @@ final class HeldMapDisplay {
      * @param hand         which hand the map is in: the main one meaning {@code slot}, or the offhand
      * @param item         what the client is told the faked slots hold, and null for a real item, which needs
      *                     nothing told about it
+     * @param mapId        what the client is sent pixels under, which is the item's own for a real one
+     * @param mine         whether a stack is the one this session belongs to, which {@code mapId} cannot answer
+     *                     once a screen pins one - see {@link PlayerSession#mine}
      */
     private record Held(HandOptions options, int previousSlot, int slot, EquipmentSlot hand, int mapId,
-                        @Nullable ItemStack item, boolean minted) {
+                        Predicate<ItemStack> mine, @Nullable ItemStack item, boolean minted) {
 
         Held at(int slot, EquipmentSlot hand) {
-            return new Held(options, previousSlot, slot, hand, mapId, item, minted);
+            return new Held(options, previousSlot, slot, hand, mapId, mine, item, minted);
         }
 
         Held showing(@Nullable ItemStack item) {
-            return new Held(options, previousSlot, slot, hand, mapId, item, minted);
+            return new Held(options, previousSlot, slot, hand, mapId, mine, item, minted);
         }
 
         boolean real() {
@@ -66,10 +70,12 @@ final class HeldMapDisplay {
     /**
      * Starts carrying the map.
      *
-     * @param mapId the id to draw under. A real item's own, since the client looks up pixels by the id stamped
-     *              into the item, and freshly invented for everything else
+     * @param mapId   the id to draw under. A real item's own, since the client looks up pixels by the id stamped
+     *                into the item, and freshly invented for everything else
+     * @param mine    which stack in the inventory this session's screen belongs to
+     * @param carried the item to hand over if the player has none of their own, for a real carry and null otherwise
      */
-    void open(Session session, HandOptions options, int mapId) {
+    void open(Session session, HandOptions options, int mapId, Predicate<ItemStack> mine, @Nullable ItemStack carried) {
         Player player = session.player();
         int selected = player.getInventory().getHeldItemSlot();
         EquipmentSlot hand = options.reachesMainHand() ? EquipmentSlot.HAND : EquipmentSlot.OFF_HAND;
@@ -77,12 +83,12 @@ final class HeldMapDisplay {
 
         // A real item has to exist, and may already: the holder of a phone found in a chest is holding it before
         // any of this runs, and handing them a second one would be a duplicate of the thing they are carrying.
-        boolean minted = real && !alreadyCarrying(player, mapId);
+        boolean minted = real && !alreadyCarrying(player, mine);
         if (minted) {
-            hand(player, HandItems.blank(mapId));
+            hand(player, carried);
         }
 
-        held.put(player.getUniqueId(), new Held(options, selected, startingSlot(options, selected), hand, mapId,
+        held.put(player.getUniqueId(), new Held(options, selected, startingSlot(options, selected), hand, mapId, mine,
                 real ? null : mapItem(session), minted));
 
         // Selected as well as placed, for a pinned map: the caller asked for the screen to be shown, and a map in
@@ -103,12 +109,12 @@ final class HeldMapDisplay {
      */
     boolean carries(Player player) {
         Held entry = held.get(player.getUniqueId());
-        return entry != null && (!entry.real() || alreadyCarrying(player, entry.mapId()));
+        return entry != null && (!entry.real() || alreadyCarrying(player, entry.mine()));
     }
 
-    private static boolean alreadyCarrying(Player player, int mapId) {
+    private static boolean alreadyCarrying(Player player, Predicate<ItemStack> mine) {
         for (ItemStack stack : player.getInventory().getContents()) {
-            if (HandItems.mapIdOf(stack) == mapId) return true;
+            if (mine.test(stack)) return true;
         }
         return false;
     }
@@ -151,14 +157,14 @@ final class HeldMapDisplay {
         // Taken back only if it was handed over here. An item somebody found is theirs, and closing its screen
         // must not confiscate it - putting a phone away is not losing it.
         if (entry.minted()) {
-            removeCarried(player, entry.mapId());
+            removeCarried(player, entry.mine());
         }
     }
 
-    private static void removeCarried(Player player, int mapId) {
+    private static void removeCarried(Player player, Predicate<ItemStack> mine) {
         ItemStack[] contents = player.getInventory().getContents();
         for (int slot = 0; slot < contents.length; slot++) {
-            if (HandItems.mapIdOf(contents[slot]) == mapId) {
+            if (mine.test(contents[slot])) {
                 player.getInventory().setItem(slot, null);
                 return;
             }
@@ -237,8 +243,8 @@ final class HeldMapDisplay {
         // A real item is wherever the player last put it, so the inventory is asked rather than remembered. Which
         // it has to be: it can be swapped, dragged, dropped and picked up again, and none of that goes through here.
         if (entry.real()) {
-            if (HandItems.mapIdOf(player.getInventory().getItemInMainHand()) == entry.mapId()) return EquipmentSlot.HAND;
-            if (HandItems.mapIdOf(player.getInventory().getItemInOffHand()) == entry.mapId()) return EquipmentSlot.OFF_HAND;
+            if (entry.mine().test(player.getInventory().getItemInMainHand())) return EquipmentSlot.HAND;
+            if (entry.mine().test(player.getInventory().getItemInOffHand())) return EquipmentSlot.OFF_HAND;
 
             return null;
         }
