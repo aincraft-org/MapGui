@@ -246,15 +246,19 @@ final class InputListeners implements Listener {
      */
     @EventHandler
     public void onDeath(PlayerDeathEvent event) {
-        plugin.sessions().close(event.getPlayer(), false);
+        Player player = event.getPlayer();
+        plugin.sessions().close(player, false);
+        plugin.camera().forget(player.getUniqueId());
     }
 
     /** The router owns the claim bookkeeping, so it clears the player outright rather than trusting every subsystem to tidy up. */
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
-        plugin.sessions().close(event.getPlayer(), true);
-        plugin.handItems().forget(event.getPlayer());
-        plugin.heldTriggers().forget(event.getPlayer());
-        plugin.router().releaseAll(event.getPlayer());
+        Player player = event.getPlayer();
+        plugin.sessions().close(player, true);
+        plugin.handItems().forget(player);
+        plugin.heldTriggers().forget(player);
+        plugin.router().releaseAll(player);
+        plugin.camera().forget(player.getUniqueId());
     }
 }

@@ -185,6 +185,11 @@ final class CaptureBudget {
         viewer.costNanos = viewer.costNanos * (1 - weight) + mainNanos * weight;
     }
 
+    /** Forget all pacing/report state for a player who is no longer alive or connected. */
+    void forget(UUID player) {
+        viewers.remove(player);
+    }
+
     /** The budget an admin set, for a report that has to say which of the two limits is the binding one. */
     double maxMillisPerTick() {
         return maxMillisPerTick;

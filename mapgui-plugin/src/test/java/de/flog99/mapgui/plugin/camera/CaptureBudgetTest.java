@@ -158,6 +158,25 @@ class CaptureBudgetTest {
         assertEquals(10, budget.live().fastestFps(), 0.01);
     }
 
+    @Test
+    void forgettingAPlayerRemovesTheirStateButKeepsActivePlayers() {
+        CaptureBudget budget = budget(1.0, 10);
+        UUID forgotten = UUID.randomUUID();
+        UUID active = UUID.randomUUID();
+
+        assertTrue(budget.readyForFrame(forgotten));
+        budget.spent(forgotten, FRAME_COST);
+        assertTrue(budget.readyForFrame(active));
+        budget.spent(active, FRAME_COST);
+        assertEquals(2, budget.live().viewers());
+
+        budget.forget(forgotten);
+
+        assertEquals(1, budget.live().viewers());
+        assertEquals(0, budget.frameRate(forgotten));
+        assertTrue(budget.frameRate(active) > 0);
+    }
+
     /**
      * The cold start. One capture with nothing in the chunk cache costs tens of milliseconds, the estimate climbs
      * to match, and the rate collapses - and then reuse makes captures cheap again while the estimate is still the

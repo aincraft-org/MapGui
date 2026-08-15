@@ -520,6 +520,12 @@ public final class CameraService implements Camera {
         return true;
     }
 
+    /** Remove all player-owned report and pacing state when their lifecycle ends. */
+    public void forget(UUID player) {
+        followed.remove(player);
+        budget.forget(player);
+    }
+
     /**
      * One capture's four stages, for the player following along.
      *
