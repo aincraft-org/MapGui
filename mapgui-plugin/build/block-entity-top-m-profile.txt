@@ -1,0 +1,10 @@
+block-entity-top-m verification profile
+
+Command:
+  ./gradlew :mapgui-plugin:test --tests 'de.flog99.mapgui.plugin.camera.BlockEntityCaptureTest'
+
+Result:
+  BUILD SUCCESSFUL (13 actionable tasks: 1 executed, 12 up-to-date)
+
+Assessment:
+  Existing global sort path remains unchanged. Focused tests pass; this profile does not establish a material cost justifying a production rewrite. Per roadmap, preserve production behavior and record verification only.
