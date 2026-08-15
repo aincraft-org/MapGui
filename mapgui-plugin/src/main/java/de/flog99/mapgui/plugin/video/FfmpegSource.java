@@ -30,9 +30,11 @@ public final class FfmpegSource implements LiveSource {
     private final int width;
     private final int height;
     private final boolean loop;
+    private final int targetFps;
     private final Thread thread;
     private static final int IO_TIMEOUT_MS = 5_000;
     private static final long CLOSE_TIMEOUT_MS = 5_000;
+    private static final int DEFAULT_TARGET_FPS = 10;
 
     /** The active grabber is published so close can cancel a blocking native read. */
     private volatile FFmpegFrameGrabber grabber;
@@ -45,18 +47,25 @@ public final class FfmpegSource implements LiveSource {
     @Nullable
     private volatile String error;
 
-
+    /**
+     * Direct callers retain the historical 10 FPS demand. Wall playback uses the configured wall FPS overload.
+     */
+    public FfmpegSource(String source, int width, int height, boolean loop) {
+        this(source, width, height, loop, DEFAULT_TARGET_FPS);
+    }
 
     /**
      * @param source what FFmpeg should open - a file path or a url
-     * @param width  the size to decode to, which should be the size it will be drawn at
-     * @param loop   start again at the end, which is what a file wants and a stream cannot do
+     * @param width the size to decode to, which should be the size it will be drawn at
+     * @param loop start again at the end, which is what a file wants and a stream cannot do
+     * @param targetFps effective wall demand for publication/coalescing
      */
-    public FfmpegSource(String source, int width, int height, boolean loop) {
+    public FfmpegSource(String source, int width, int height, boolean loop, int targetFps) {
         this.source = source;
         this.width = width;
         this.height = height;
         this.loop = loop;
+        this.targetFps = Math.max(1, targetFps);
 
         this.thread = new Thread(this::decode, "MapGUI-video");
         thread.setDaemon(true);
@@ -121,9 +130,6 @@ public final class FfmpegSource implements LiveSource {
             this.grabber = grabber;
 
             // Bound native reads as well as Java-side shutdown.
-            grabber.setTimeout(IO_TIMEOUT_MS);
-            grabber.setOption("rw_timeout", Long.toString(IO_TIMEOUT_MS * 1_000L));
-            grabber.setOption("stimeout", Long.toString(IO_TIMEOUT_MS * 1_000L));
             // Scaled by the decoder, so nothing full size is ever allocated.
             grabber.setImageWidth(width);
             grabber.setImageHeight(height);
@@ -134,6 +140,10 @@ public final class FfmpegSource implements LiveSource {
             int[] argb = new int[width * height];
             long frameMs = Math.max(1, Math.round(1000 / Math.max(1, grabber.getFrameRate())));
             long next = System.currentTimeMillis();
+            long targetMs = Math.max(1, 1000L / targetFps);
+            long targetUs = Math.max(1, 1_000_000L / targetFps);
+            long lastPublishedUs = Long.MIN_VALUE;
+            long lastPublishedAt = Long.MIN_VALUE;
 
             while (running && !Thread.currentThread().isInterrupted()) {
                 Frame picture = grabber.grabImage();
@@ -142,6 +152,17 @@ public final class FfmpegSource implements LiveSource {
                     if (!loop) break;
 
                     grabber.setTimestamp(0);
+                    continue;
+                }
+
+                long timestampUs = grabber.getTimestamp();
+                long now = System.currentTimeMillis();
+                boolean timestampDue = timestampUs <= 0
+                        || lastPublishedUs == Long.MIN_VALUE
+                        || timestampUs - lastPublishedUs >= targetUs;
+                boolean wallDue = lastPublishedAt == Long.MIN_VALUE || now - lastPublishedAt >= targetMs;
+                if (!timestampDue && !wallDue) {
+                    next = pace(next, frameMs);
                     continue;
                 }
 
@@ -154,16 +175,12 @@ public final class FfmpegSource implements LiveSource {
                     MapColors.INSTANCE.quantize(argb, indices);
                 }
                 frame = indices;
+                lastPublishedUs = timestampUs > 0 ? timestampUs : lastPublishedUs;
+                lastPublishedAt = now;
 
                 // Decoding a file runs as fast as the disk allows, which would play an hour of video in a
                 // minute. A live stream paces itself and never waits here.
-                next += frameMs;
-                long sleep = next - System.currentTimeMillis();
-                if (sleep > 0) {
-                    Thread.sleep(sleep);
-                } else {
-                    next = System.currentTimeMillis();
-                }
+                next = pace(next, frameMs);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -174,6 +191,16 @@ public final class FfmpegSource implements LiveSource {
             grabber = null;
             running = false;
         }
+    }
+
+    private static long pace(long next, long frameMs) throws InterruptedException {
+        long sleep = next - System.currentTimeMillis();
+        if (sleep > 0) {
+            Thread.sleep(sleep);
+        } else {
+            next = System.currentTimeMillis();
+        }
+        return next + frameMs;
     }
 
     /**

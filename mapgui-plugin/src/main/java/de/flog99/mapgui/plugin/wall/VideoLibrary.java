@@ -42,6 +42,7 @@ final class VideoLibrary {
     private static final Set<String> PLAYABLE = Set.of(".mp4", ".mkv", ".webm", ".mov", ".avi", ".m4v", ".ts", ".flv");
 
     private final Plugin plugin;
+    private final int targetFps;
     private final int size;
     private final int maxFrames;
     private final long maxDurationMs;
@@ -61,8 +62,10 @@ final class VideoLibrary {
      */
     private final Map<String, String> unplayable = new HashMap<>();
 
-    VideoLibrary(Plugin plugin, int size, int maxFrames, long maxDurationMs, long maxBytes, boolean prerender, Map<String, String> streams) {
+    VideoLibrary(Plugin plugin, int targetFps, int size, int maxFrames, long maxDurationMs, long maxBytes,
+                 boolean prerender, Map<String, String> streams) {
         this.plugin = plugin;
+        this.targetFps = Math.max(1, targetFps);
         this.size = size;
         this.maxFrames = maxFrames;
         this.maxDurationMs = maxDurationMs;
@@ -194,7 +197,7 @@ final class VideoLibrary {
         }
 
         // Square, because the wall it lands on is not known yet and the player letterboxes whatever it gets.
-        LiveSource started = new FfmpegSource(source, size, size, loop);
+        LiveSource started = new FfmpegSource(source, size, size, loop, targetFps);
         playing.put(name, started);
         return WallContent.live(started);
     }

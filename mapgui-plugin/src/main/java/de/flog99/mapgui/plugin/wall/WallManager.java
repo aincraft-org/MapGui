@@ -62,7 +62,7 @@ public final class WallManager {
         this.walls = walls;
         this.router = router;
         this.store = new WallStore(plugin);
-        this.contents = new WallContents(screens, new VideoLibrary(plugin, videoSize, videoMaxFrames, videoMaxDurationMs, videoMaxBytes, prerender, streams));
+        this.contents = new WallContents(screens, new VideoLibrary(plugin, fps, videoSize, videoMaxFrames, videoMaxDurationMs, videoMaxBytes, prerender, streams));
         this.fps = fps;
         this.range = range;
     }
