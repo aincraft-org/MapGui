@@ -14,6 +14,7 @@ import org.bukkit.entity.Villager;
 import org.bukkit.entity.Wolf;
 import org.bukkit.entity.ZombieVillager;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -44,6 +45,21 @@ final class MobTextures {
 
     /** What the assets call the Toast rabbit's coat, which is a texture like the other seven and not a special case. */
     private static final String TOAST_COAT = "toast";
+
+    /** Cached reflective accessors, including a sentinel for methods that do not exist. */
+    private static final Map<Class<?>, Map<String, Method>> ACCESSORS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Method ABSENT;
+
+    static {
+        try {
+            ABSENT = MobTextures.class.getDeclaredMethod("absentAccessor");
+        } catch (NoSuchMethodException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+    }
+
+    private static void absentAccessor() {
+    }
 
     private MobTextures() {
     }
@@ -320,11 +336,24 @@ final class MobTextures {
     /** One accessor, or null when this entity has no such method or it answers with nothing nameable. */
     private static Object called(Entity entity, String accessor) {
         try {
-            return entity.getClass().getMethod(accessor).invoke(entity);
+            Map<String, Method> methods = ACCESSORS.computeIfAbsent(
+                    entity.getClass(), ignored -> new java.util.concurrent.ConcurrentHashMap<>());
+            Method method = methods.computeIfAbsent(accessor, name -> {
+                try {
+                    return entity.getClass().getMethod(name);
+                } catch (ReflectiveOperationException | RuntimeException e) {
+                    return ABSENT;
+                }
+            });
+            return method == ABSENT ? null : method.invoke(entity);
         } catch (ReflectiveOperationException | RuntimeException e) {
-            // No such method on this type, which is the ordinary case and not worth a log line per entity.
             return null;
         }
+    }
+
+    static int cachedAccessorCount(Entity entity, String accessor) {
+        Map<String, Method> methods = ACCESSORS.get(entity.getClass());
+        return methods != null && methods.containsKey(accessor) ? 1 : 0;
     }
 
     /** What the assets would call this variant, whichever of the two shapes Bukkit hands it over as. */
