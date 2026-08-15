@@ -44,6 +44,11 @@ public final class TrackingRanges {
      * only lower and never raise.
      */
     public static final double DEFAULT_MAX = 64;
+    /** Finite operational cap for the world copy radius. */
+    public static final int MAX_CAPTURE_DISTANCE = 512;
+
+    /** Finite operational cap for entity model gathering. */
+    public static final double MAX_ENTITY_DISTANCE = 256;
 
     /** Spigot's own names for the buckets it tracks by. */
     private static final String PLAYERS = "players";

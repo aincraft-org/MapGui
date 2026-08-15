@@ -84,8 +84,10 @@ public record MapGuiConfig(
     private static CameraTuning camera(FileConfiguration config) {
         return new CameraTuning(
                 (float) config.getDouble("camera.fov", CameraView.DEFAULT_FOV),
-                Math.max(1, config.getInt("camera.max-distance", 96)),
-                Math.max(1, config.getDouble("camera.max-entity-distance", TrackingRanges.DEFAULT_MAX)),
+                Math.min(TrackingRanges.MAX_CAPTURE_DISTANCE,
+                        Math.max(1, config.getInt("camera.max-distance", 96))),
+                Math.min(TrackingRanges.MAX_ENTITY_DISTANCE,
+                        Math.max(1, config.getDouble("camera.max-entity-distance", TrackingRanges.DEFAULT_MAX))),
                 // Both floor at zero, which each read as "no limit of this kind" rather than as "no frames".
                 Math.max(0, config.getDouble("camera.live.max-ms-per-tick", 3.0)),
                 Math.max(0, config.getInt("camera.live.max-fps", 10)),
@@ -139,9 +141,12 @@ public record MapGuiConfig(
     private static CameraTuning.Limits limits(FileConfiguration config) {
         CameraTuning.Limits defaults = CameraTuning.Limits.defaults();
         return new CameraTuning.Limits(
-                Math.max(0, config.getInt("camera.limits.max-entities", defaults.mobs())),
-                Math.max(0, config.getInt("camera.limits.max-tile-entities", defaults.blockEntities())),
-                Math.max(0, config.getDouble("camera.limits.tile-entity-distance", defaults.blockEntityDistance()))
+                Math.min(CameraTuning.Limits.MAX_ENTITIES,
+                        Math.max(0, config.getInt("camera.limits.max-entities", defaults.mobs()))),
+                Math.min(CameraTuning.Limits.MAX_BLOCK_ENTITIES,
+                        Math.max(0, config.getInt("camera.limits.max-tile-entities", defaults.blockEntities()))),
+                Math.min(CameraTuning.Limits.MAX_BLOCK_ENTITY_DISTANCE,
+                        Math.max(0, config.getDouble("camera.limits.tile-entity-distance", defaults.blockEntityDistance())))
         );
     }
 

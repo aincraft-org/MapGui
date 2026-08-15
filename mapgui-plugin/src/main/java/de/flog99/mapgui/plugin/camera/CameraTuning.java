@@ -63,6 +63,10 @@ public record CameraTuning(float fov, int maxDistance, double maxEntityDistance,
      */
     public record Limits(int mobs, int blockEntities, double blockEntityDistance) {
 
+        public static final int MAX_ENTITIES = 4096;
+        public static final int MAX_BLOCK_ENTITIES = 4096;
+        public static final double MAX_BLOCK_ENTITY_DISTANCE = 256;
+
         public static Limits defaults() {
             return new Limits(48, 512, 64);
         }
