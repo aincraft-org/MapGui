@@ -157,4 +157,13 @@ class MobCacheTest {
         assertNull(cache.get(UUID.randomUUID(), CameraTuning.Reuse.MOBS.farNanos(), 0));
         assertNotNull(built(), "and building one is what the caller does with that");
     }
+    @Test
+    void disabledReuseDoesNotRetainANewlyBuiltShape() {
+        MobCache cache = new MobCache(ReuseWindow.NONE);
+        UUID entity = UUID.randomUUID();
+        cache.put(entity, built(), 0);
+
+        assertEquals(0, cache.size());
+        assertNull(cache.get(entity, 0, 0));
+    }
 }

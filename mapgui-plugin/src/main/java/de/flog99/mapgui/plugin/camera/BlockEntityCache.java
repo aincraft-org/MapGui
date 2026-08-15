@@ -86,6 +86,7 @@ final class BlockEntityCache {
     }
 
     synchronized void put(UUID world, int chunkX, int chunkZ, List<EntitySnapshot> drawn, long now) {
+        if (!live.enabled()) return;
         held.put(new Key(world, chunkX, chunkZ), new Held(List.copyOf(drawn), now));
     }
 

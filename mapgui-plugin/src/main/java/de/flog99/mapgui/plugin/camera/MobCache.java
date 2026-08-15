@@ -118,6 +118,7 @@ final class MobCache {
     }
 
     synchronized void put(UUID entity, Built built, long now) {
+        if (!live.enabled()) return;
         held.put(entity, new Held(built, now));
     }
 

@@ -105,4 +105,12 @@ class BlockEntityCacheTest {
 
         assertEquals(BlockEntityCache.CAPACITY, cache.size());
     }
+    @Test
+    void disabledReuseDoesNotRetainAColumnPutByCapture() {
+        BlockEntityCache cache = new BlockEntityCache(new SnapshotCache(0), ReuseWindow.NONE);
+        cache.put(WORLD, 0, 0, column(), 0);
+
+        assertEquals(0, cache.size());
+        assertNull(cache.get(WORLD, 0, 0, 0, true, 0));
+    }
 }
