@@ -47,6 +47,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.PriorityQueue;
 
 /**
  * Copies the entities in view out of the server, in the same tick as the blocks.
@@ -87,29 +88,31 @@ final class EntityCapture {
                                      MobCache shapes, boolean live, int most, boolean includeSelf) {
         double search = ranges.widest();
 
-        // Culled first and sorted second. A box query in a village comes back with everything, and sorting it all
-        // put entities about to be thrown away through a comparator that allocated two Locations per comparison.
-        List<Near> near = new ArrayList<>();
+        // Cull first, then retain only the nearest {@code most} candidates. A bounded max-heap keeps the
+        // furthest retained candidate at its root, so a dense village cannot allocate and sort every survivor.
+        Comparator<Near> nearestFirst = Comparator.comparingDouble(Near::distanceSquared);
+        PriorityQueue<Near> nearest = new PriorityQueue<>(Math.max(1, most), nearestFirst.reversed());
         for (Entity entity : viewer.getWorld().getNearbyEntities(eye, search, search, search)) {
             if (entity.equals(viewer) && !includeSelf) continue;
-            // An ender dragon is nine entities and every one of its eight hitboxes answers "ender_dragon", so drawn
-            // as they come they are nine dragons stacked. The client treats the parts as hitboxes, so this does too.
             if (entity instanceof ComplexEntityPart) continue;
 
-            // Asked once and carried: wanted to cull by range, to cull by frame, and to order what is left.
             Location at = entity.getLocation();
             double away = distanceSquared(at, eye);
-
-            // Out of range is one the photographer's own client was never sent. Out of frame is one the camera is
-            // not pointed at, which is most of what a search returns since a camera sees a quarter of its
-            // surroundings - and every one of those used to be built in full and thrown away by the trace.
             double range = ranges.forEntity(entity);
             if (away > range * range) continue;
             if (frustum != null && !frustum.mightSee(at.getX(), at.getY() + REACH, at.getZ(), REACH)) continue;
 
-            near.add(new Near(entity, at, away));
+            Near candidate = new Near(entity, at, away);
+            if (most <= 0) continue;
+            if (nearest.size() < most) {
+                nearest.offer(candidate);
+            } else if (nearestFirst.compare(candidate, nearest.peek()) < 0) {
+                nearest.poll();
+                nearest.offer(candidate);
+            }
         }
-        near.sort(Comparator.comparingDouble(Near::distanceSquared));
+        List<Near> near = new ArrayList<>(nearest);
+        near.sort(nearestFirst);
 
         // Once for the whole capture, so every mob is judged for staleness against the same instant.
         long now = System.nanoTime();
