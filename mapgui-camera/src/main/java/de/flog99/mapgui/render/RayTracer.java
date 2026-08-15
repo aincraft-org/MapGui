@@ -237,7 +237,7 @@ public final class RayTracer {
      * {@link Fragments}, which sorts by depth, so an entity behind a wall contributes nothing without a check.
      */
     public void render(VoxelSource world, CameraView view, List<EntitySnapshot> entities, int width, int height, int[] out) {
-        render(world, view, entities, width, height, out, 0, height);
+        render(world, view, entities, width, height, out, 0, height, new java.util.concurrent.atomic.AtomicBoolean());
     }
 
     /**
@@ -248,7 +248,8 @@ public final class RayTracer {
      * @param fromRow inclusive, {@code toRow} exclusive
      */
     public void render(VoxelSource world, CameraView view, List<EntitySnapshot> entities,
-                       int width, int height, int[] out, int fromRow, int toRow) {
+                       int width, int height, int[] out, int fromRow, int toRow,
+                       java.util.concurrent.atomic.AtomicBoolean cancelled) {
 
         fog = view.fog();
         // Only the last stretch fades, which is what turns the distance cap into a haze instead of a wall.
@@ -279,9 +280,9 @@ public final class RayTracer {
         Arrays.fill(fluidKeys, NO_POSITION);
         CameraView.Frame frame = view.frame();
         EntityScreen screen = entities.isEmpty() ? null : new EntityScreen(entities, view, width, height);
-
         for (int py = fromRow; py < toRow; py++) {
-            if (Thread.interrupted()) {
+            if (cancelled.get() || Thread.interrupted()) {
+                cancelled.set(true);
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Ray tracer interrupted");
             }

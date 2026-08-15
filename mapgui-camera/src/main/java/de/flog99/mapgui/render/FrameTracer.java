@@ -2,10 +2,12 @@ package de.flog99.mapgui.render;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -81,33 +83,46 @@ public final class FrameTracer implements AutoCloseable {
      * async as a whole, and handing back a half-drawn frame would only move the waiting somewhere less obvious.
      */
     public void render(VoxelSource world, CameraView view, List<EntitySnapshot> entities, int width, int height, int[] out) {
+        render(world, view, entities, width, height, out, new AtomicBoolean());
+    }
+
+    public void render(VoxelSource world, CameraView view, List<EntitySnapshot> entities, int width, int height,
+                       int[] out, AtomicBoolean cancelled) {
         int bands = Math.min(threads, height);
         if (pool != null && pool.isShutdown()) {
             throw new IllegalStateException("Tracer is closed");
         }
         if (pool == null || bands <= 1) {
-            tracers.get().render(world, view, entities, width, height, out);
+            tracers.get().render(world, view, entities, width, height, out, 0, height, cancelled);
             return;
         }
 
         List<Future<?>> pending = new ArrayList<>(bands);
-        for (int band = 0; band < bands; band++) {
-            int fromRow = height * band / bands;
-            int toRow = height * (band + 1) / bands;
-            pending.add(pool.submit(() -> tracers.get().render(world, view, entities, width, height, out, fromRow, toRow)));
-        }
-
-        for (Future<?> band : pending) {
-            try {
-                band.get();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("Interrupted while tracing a frame", e);
-            } catch (java.util.concurrent.CancellationException e) {
-                throw new IllegalStateException("Tracer closed while tracing a frame", e);
-            } catch (java.util.concurrent.ExecutionException e) {
-                // Unwrapped, so a caller sees the failure the band actually hit rather than a wrapper around it.
-                throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());
+        try {
+            for (int band = 0; band < bands; band++) {
+                int fromRow = height * band / bands;
+                int toRow = height * (band + 1) / bands;
+                pending.add(pool.submit(() -> tracers.get().render(world, view, entities, width, height, out,
+                        fromRow, toRow, cancelled)));
+            }
+            for (Future<?> band : pending) {
+                try {
+                    band.get();
+                } catch (InterruptedException e) {
+                    cancelled.set(true);
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("Interrupted while tracing a frame", e);
+                } catch (CancellationException e) {
+                    cancelled.set(true);
+                    throw new IllegalStateException("Tracer closed while tracing a frame", e);
+                } catch (java.util.concurrent.ExecutionException e) {
+                    cancelled.set(true);
+                    throw e.getCause() instanceof RuntimeException runtime ? runtime : new IllegalStateException(e.getCause());
+                }
+            }
+        } finally {
+            if (cancelled.get()) {
+                for (Future<?> band : pending) band.cancel(true);
             }
         }
     }

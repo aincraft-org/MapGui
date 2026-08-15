@@ -374,11 +374,13 @@ public final class CameraService implements Camera {
                 byte[] indices = new byte[pixels * pixels];
                 long traceStarted = System.nanoTime();
                 long traced;
+                java.util.concurrent.atomic.AtomicBoolean cancelled = new java.util.concurrent.atomic.AtomicBoolean();
                 try {
-                    ready.tracer().render(world, view, entities, pixels, pixels, argb);
+                    ready.tracer().render(world, view, entities, pixels, pixels, argb, cancelled);
                     traced = System.nanoTime();
                     ready.palette().quantize(argb, indices);
                 } catch (RuntimeException e) {
+                    cancelled.set(true);
                     plugin.getLogger().log(Level.WARNING, "A camera capture failed", e);
                     load.failed(capture.owner(), e);
                     onMainThread(() -> capture.onShot().accept(null));
